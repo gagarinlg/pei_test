@@ -27,17 +27,14 @@ jobs:
         pip install coverage
         pip install -r requirements.txt
 
-    - name: Run unit tests
-      run: |
-        python -m unittest discover -s tetra_pei_test/tests -p "test_*.py" -v
-
     - name: Run tests with coverage
       run: |
-        python -m coverage run --source=tetra_pei_test -m unittest discover -s tetra_pei_test/tests -p "test_*.py"
+        python -m coverage run --source=tetra_pei_test -m unittest discover -s tetra_pei_test/tests -p "test_*.py" -v
         python -m coverage report
         python -m coverage html
 
     - name: Upload coverage report
+      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: coverage-report-py${{ matrix.python-version }}

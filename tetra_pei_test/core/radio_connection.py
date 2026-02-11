@@ -200,6 +200,46 @@ class RadioConnection:
         logger.debug(f"Timeout waiting for '{terminator}' from {self.radio_id}")
         return False, accumulated
     
+    def receive_until_any(self, terminators: list, timeout: float = 5.0) -> Tuple[bool, str, str]:
+        """
+        Receive data until any of the terminator strings is found or timeout.
+        
+        Valid AT command final responses are:
+        - OK
+        - ERROR
+        - NO CARRIER
+        - NO DIALTONE
+        - BUSY
+        - NO ANSWER
+        
+        Args:
+            terminators: List of terminator strings to wait for
+            timeout: Maximum time to wait in seconds
+        
+        Returns:
+            Tuple of (success, accumulated_data, matched_terminator)
+        """
+        accumulated = ""
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout:
+            remaining_timeout = timeout - (time.time() - start_time)
+            data = self.receive(timeout=min(remaining_timeout, 1.0))
+            
+            if data:
+                accumulated += data
+                # Check for any terminator
+                for terminator in terminators:
+                    if terminator in accumulated:
+                        logger.debug(f"Found terminator '{terminator}' for {self.radio_id}")
+                        return True, accumulated, terminator
+            
+            # Small sleep to prevent busy waiting
+            time.sleep(0.01)
+        
+        logger.debug(f"Timeout waiting for any of {terminators} from {self.radio_id}")
+        return False, accumulated, ""
+    
     def is_connected(self) -> bool:
         """Check if connection is active."""
         return self.connected

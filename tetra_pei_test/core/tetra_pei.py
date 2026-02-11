@@ -29,6 +29,16 @@ class PTTState(Enum):
     RELEASED = "released"
 
 
+class ATCommandResponse(Enum):
+    """Valid AT command final responses."""
+    OK = "OK"
+    ERROR = "ERROR"
+    NO_CARRIER = "NO CARRIER"
+    NO_DIALTONE = "NO DIALTONE"
+    BUSY = "BUSY"
+    NO_ANSWER = "NO ANSWER"
+
+
 class TetraPEI:
     """
     TETRA PEI protocol implementation using AT commands.
@@ -44,7 +54,27 @@ class TetraPEI:
     messages from command responses and stores them separately for later retrieval.
     
     Use get_unsolicited_messages() to retrieve stored unsolicited messages.
+    
+    AT Command Response Handling:
+    =============================
+    All AT commands return one of the following final responses:
+    - OK: Command executed successfully
+    - ERROR: Command syntax error or execution failure
+    - NO CARRIER: Call disconnected by remote party
+    - NO DIALTONE: No network or dial tone available
+    - BUSY: Called party is busy
+    - NO ANSWER: Called party did not answer
     """
+    
+    # Valid AT command final response terminators
+    VALID_RESPONSE_TERMINATORS = [
+        "OK\r\n",
+        "ERROR\r\n",
+        "NO CARRIER\r\n",
+        "NO DIALTONE\r\n",
+        "BUSY\r\n",
+        "NO ANSWER\r\n"
+    ]
     
     def __init__(self, connection: RadioConnection):
         """
@@ -56,6 +86,7 @@ class TetraPEI:
         self.connection = connection
         self.radio_id = connection.radio_id
         self._last_response = ""
+        self._last_response_type = None
         self._unsolicited_messages = []
         
         # Patterns that identify unsolicited messages
@@ -91,11 +122,14 @@ class TetraPEI:
         
         Args:
             command: AT command to send (without CR+LF)
-            wait_for_response: Whether to wait for OK/ERROR response
+            wait_for_response: Whether to wait for final response
             timeout: Response timeout in seconds
         
         Returns:
             Tuple of (success, response_data)
+            
+        Notes:
+            Success is True for OK response, False for ERROR, NO CARRIER, NO DIALTONE, BUSY, NO ANSWER
         """
         if not self.connection.is_connected():
             logger.error(f"Cannot send command to {self.radio_id}: not connected")
@@ -109,19 +143,24 @@ class TetraPEI:
         if not wait_for_response:
             return True, ""
         
-        # Wait for response (OK or ERROR)
-        success, response = self.connection.receive_until("OK\r\n", timeout)
+        # Wait for any valid final response
+        success, response, matched_terminator = self.connection.receive_until_any(
+            self.VALID_RESPONSE_TERMINATORS, timeout
+        )
         
         if not success:
-            # Check if we got ERROR instead
-            if "ERROR" in response:
-                logger.error(f"Command failed for {self.radio_id}: {command} -> {response}")
-                # Filter unsolicited messages even from error responses
-                filtered_response, unsolicited = self._filter_unsolicited_messages(response, command)
-                self._unsolicited_messages.extend(unsolicited)
-                return False, filtered_response
             logger.error(f"Timeout waiting for response from {self.radio_id}: {command}")
+            self._last_response_type = None
             return False, response
+        
+        # Determine response type
+        response_type = None
+        for terminator in self.VALID_RESPONSE_TERMINATORS:
+            if matched_terminator == terminator:
+                response_type = terminator.strip()
+                break
+        
+        self._last_response_type = response_type
         
         # Filter out unsolicited messages from the response
         filtered_response, unsolicited = self._filter_unsolicited_messages(response, command)
@@ -132,8 +171,16 @@ class TetraPEI:
             logger.debug(f"Captured {len(unsolicited)} unsolicited message(s) during command: {command}")
         
         self._last_response = filtered_response
-        logger.debug(f"Command successful for {self.radio_id}: {command}")
-        return True, filtered_response
+        
+        # Determine success based on response type
+        is_success = response_type == "OK"
+        
+        if response_type == "OK":
+            logger.debug(f"Command successful for {self.radio_id}: {command}")
+        else:
+            logger.warning(f"Command returned {response_type} for {self.radio_id}: {command}")
+        
+        return is_success, filtered_response
     
     def _filter_unsolicited_messages(self, response: str, command: str = "") -> Tuple[str, List[str]]:
         """
@@ -525,3 +572,12 @@ class TetraPEI:
     def get_last_response(self) -> str:
         """Get the last response received from the radio."""
         return self._last_response
+    
+    def get_last_response_type(self) -> Optional[str]:
+        """
+        Get the type of the last response received from the radio.
+        
+        Returns:
+            One of: "OK", "ERROR", "NO CARRIER", "NO DIALTONE", "BUSY", "NO ANSWER", or None
+        """
+        return self._last_response_type

@@ -48,7 +48,7 @@ class TetraRadioSimulator:
         self.issi = issi
         
         self.state = RadioState.IDLE
-        self.registered = False
+        self.registered = True  # Default to registered
         self.joined_groups: Set[str] = set()
         self.in_call_with: Optional[str] = None
         self.ptt_pressed = False
@@ -61,6 +61,8 @@ class TetraRadioSimulator:
         # Configuration
         self.auto_register = True
         self.call_response_delay = 0.5
+        self.simulate_no_answer = False  # Set to True to simulate NO ANSWER
+        self.simulate_no_carrier = False  # Set to True to simulate NO CARRIER on hangup
         
         logger.info(f"TetraRadioSimulator initialized: {radio_id} (ISSI: {issi})")
     
@@ -249,9 +251,16 @@ class TetraRadioSimulator:
         
         # Hangup
         elif command == "ATH":
+            # Check if we should simulate NO CARRIER (call dropped)
+            if self.simulate_no_carrier:
+                logger.info(f"Simulator {self.radio_id} simulating NO CARRIER on hangup")
+                self._send_response("NO CARRIER")
+                self.simulate_no_carrier = False  # Reset flag
+            else:
+                self._send_response("OK")
+            
             self.state = RadioState.IDLE
             self.in_call_with = None
-            self._send_response("OK")
         
         # PTT press/release
         elif command.startswith("AT+CTXD"):
@@ -279,23 +288,58 @@ class TetraRadioSimulator:
             self._send_response("ERROR")
     
     def _handle_dial(self, command: str) -> None:
-        """Handle dial command."""
+        """
+        Handle dial command.
+        
+        Returns appropriate response based on radio state:
+        - OK: Call initiated successfully (radio is idle)
+        - BUSY: Called party is busy (already in a call)
+        - NO ANSWER: Simulated no answer scenario
+        - NO DIALTONE: Simulated no network scenario
+        """
         # Extract target from ATD command
         # ATD<number>; for individual call
         # ATD<number># for group call
         
+        target = None
+        is_group_call = False
+        
         if ';' in command:
             # Individual call
             target = command.replace("ATD", "").replace(";", "").strip()
-            self.state = RadioState.IN_CALL
-            self.in_call_with = target
-            logger.info(f"Simulator {self.radio_id} making individual call to {target}")
+            is_group_call = False
         elif '#' in command:
             # Group call
             target = command.replace("ATD", "").replace("#", "").strip()
-            self.state = RadioState.IN_CALL
-            self.in_call_with = target
+            is_group_call = True
+        
+        # Check if this radio is already in a call
+        if self.state == RadioState.IN_CALL or self.state == RadioState.TRANSMITTING:
+            # Radio is busy
+            logger.info(f"Simulator {self.radio_id} is busy, cannot make call to {target}")
+            self._send_response("BUSY")
+            return
+        
+        # Check if not registered (simulate no dialtone)
+        if not self.registered:
+            logger.info(f"Simulator {self.radio_id} not registered, returning NO DIALTONE")
+            self._send_response("NO DIALTONE")
+            return
+        
+        # Check if we should simulate no answer
+        if self.simulate_no_answer:
+            logger.info(f"Simulator {self.radio_id} simulating NO ANSWER for call to {target}")
+            self._send_response("NO ANSWER")
+            return
+        
+        # Successful call
+        self.state = RadioState.IN_CALL
+        self.in_call_with = target
+        
+        if is_group_call:
             logger.info(f"Simulator {self.radio_id} making group call to {target}")
+        else:
+            logger.info(f"Simulator {self.radio_id} making individual call to {target}")
         
         self._send_response("OK")
     
@@ -368,6 +412,23 @@ class TetraRadioSimulator:
         if self.client_socket:
             self._send_response('+CMTI: "SM",1')
             logger.info(f"Simulator {self.radio_id} simulated text message from {sender_issi}")
+    
+    def set_busy_state(self, target: str = "9999") -> None:
+        """
+        Put the radio in a busy state (in a call).
+        
+        Args:
+            target: ISSI or GSSI of the party in call with
+        """
+        self.state = RadioState.IN_CALL
+        self.in_call_with = target
+        logger.info(f"Simulator {self.radio_id} set to busy state (in call with {target})")
+    
+    def clear_busy_state(self) -> None:
+        """Clear the busy state and return to idle."""
+        self.state = RadioState.IDLE
+        self.in_call_with = None
+        logger.info(f"Simulator {self.radio_id} cleared busy state")
     
     def get_state(self) -> Dict[str, any]:
         """Get current simulator state."""

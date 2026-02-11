@@ -89,6 +89,44 @@ class TestRadioConnection(unittest.TestCase):
         """Test receiving when not connected."""
         result = self.connection.receive()
         self.assertIsNone(result)
+    
+    def test_receive_until_any_ok(self):
+        """Test receive_until_any method with OK response."""
+        self.connection.connect()
+        
+        terminators = ["OK\r\n", "ERROR\r\n", "BUSY\r\n"]
+        self.connection.send("AT")
+        success, data, matched = self.connection.receive_until_any(terminators, timeout=3.0)
+        
+        self.assertTrue(success)
+        self.assertIn("OK", data)
+        self.assertEqual(matched, "OK\r\n")
+    
+    def test_receive_until_any_error(self):
+        """Test receive_until_any method with ERROR response."""
+        self.connection.connect()
+        
+        terminators = ["OK\r\n", "ERROR\r\n", "BUSY\r\n"]
+        # Send invalid command to get ERROR
+        self.connection.send("AT+INVALID_COMMAND")
+        success, data, matched = self.connection.receive_until_any(terminators, timeout=3.0)
+        
+        self.assertTrue(success)
+        self.assertIn("ERROR", data)
+        self.assertEqual(matched, "ERROR\r\n")
+    
+    def test_receive_until_any_timeout(self):
+        """Test receive_until_any timeout."""
+        self.connection.connect()
+        
+        terminators = ["NONEXISTENT\r\n"]
+        self.connection.send("AT")
+        success, data, matched = self.connection.receive_until_any(terminators, timeout=1.0)
+        
+        self.assertFalse(success)
+        self.assertEqual(matched, "")
+        # Should still have received OK in data
+        self.assertIn("OK", data)
 
 
 if __name__ == '__main__':

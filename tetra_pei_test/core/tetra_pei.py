@@ -35,6 +35,15 @@ class TetraPEI:
     
     This class provides high-level methods for controlling a TETRA radio
     through PEI commands over TCP connection.
+    
+    Unsolicited Message Handling:
+    ==============================
+    When sending AT commands, unsolicited messages (like incoming calls, PTT events,
+    text messages, etc.) can arrive from the radio at any time, including while
+    waiting for a command response. This class automatically filters out unsolicited
+    messages from command responses and stores them separately for later retrieval.
+    
+    Use get_unsolicited_messages() to retrieve stored unsolicited messages.
     """
     
     def __init__(self, connection: RadioConnection):

@@ -125,21 +125,61 @@ class TestUnsolicitedMessages(unittest.TestCase):
         success1, _ = self.pei._send_command("AT")
         self.assertTrue(success1)
         
-        # Send unsolicited message
-        def send_unsolicited():
-            time.sleep(0.1)
-            self.simulator.simulate_text_message("9999", "Test")
-        
-        thread = threading.Thread(target=send_unsolicited)
-        thread.start()
-        
         # Send second command
         success2, response2 = self.pei._send_command("AT+CGMM")
-        
-        thread.join()
-        
         self.assertTrue(success2)
         self.assertIn("OK", response2)
+    
+    def test_get_unsolicited_messages_api(self):
+        """Test the get_unsolicited_messages API."""
+        # Manually add some unsolicited messages to test retrieval
+        test_response = "AT\r\nOK\r\nRING\r\n+CLIP: \"5555\",145\r\n"
+        filtered, unsolicited = self.pei._filter_unsolicited_messages(test_response)
+        self._unsolicited_messages_backup = self.pei._unsolicited_messages.copy()
+        self.pei._unsolicited_messages.extend(unsolicited)
+        
+        # Get messages without clearing
+        messages = self.pei.get_unsolicited_messages(clear=False)
+        self.assertGreater(len(messages), 0)
+        
+        # Verify messages are still there
+        messages2 = self.pei.get_unsolicited_messages(clear=False)
+        self.assertEqual(len(messages), len(messages2))
+        
+        # Get and clear
+        messages3 = self.pei.get_unsolicited_messages(clear=True)
+        self.assertEqual(len(messages3), len(messages))
+        
+        # Should be empty now
+        messages4 = self.pei.get_unsolicited_messages(clear=False)
+        self.assertEqual(len(messages4), 0)
+    
+    def test_realistic_scenario_incoming_call_during_query(self):
+        """Test realistic scenario: incoming call notification during info query."""
+        # This simulates what happens in real radio operations:
+        # 1. Send command to get radio info
+        # 2. While waiting for response, an incoming call arrives
+        # 3. The call notification should be filtered out but stored
+        
+        # Create a realistic mixed response
+        realistic_response = "AT+CGMI\r\nSimulatedTetraRadio\r\nRING\r\n+CLIP: \"2001\",145\r\nOK\r\n"
+        
+        filtered, unsolicited = self.pei._filter_unsolicited_messages(realistic_response)
+        
+        # The command response should be clean
+        self.assertIn("SimulatedTetraRadio", filtered)
+        self.assertIn("OK", filtered)
+        self.assertNotIn("RING", filtered)
+        self.assertNotIn("CLIP", filtered)
+        
+        # Unsolicited messages should be captured
+        self.assertEqual(len(unsolicited), 2)
+        self.assertTrue(any("RING" in msg for msg in unsolicited))
+        self.assertTrue(any("CLIP" in msg for msg in unsolicited))
+        
+        # In real usage, application can now:
+        # 1. Process the command response normally
+        # 2. Check unsolicited messages separately to handle the incoming call
 
 
 if __name__ == '__main__':

@@ -12,6 +12,15 @@ python run_tests.py --create-config my_config.yaml
 # Run all tests
 python run_tests.py --config my_config.yaml
 
+# Run tests with repetition (detect flaky tests)
+python run_tests.py --config my_config.yaml --repeat-test 3
+
+# Run test suite multiple times (stress testing)
+python run_tests.py --config my_config.yaml --repeat-suite 5
+
+# Combine both repetition types
+python run_tests.py --config my_config.yaml --repeat-test 2 --repeat-suite 3
+
 # Run demo with simulator
 python demo.py
 
@@ -91,6 +100,7 @@ groups:
 ### 3. Test Framework
 - Base class for custom tests
 - Setup/run/teardown lifecycle
+- Test and suite repetition support
 - Assertion helpers
 - Automatic result collection
 - Detailed logging
@@ -107,10 +117,11 @@ groups:
 from tetra_pei_test.core.test_base import TestCase, TestResult
 
 class MyTest(TestCase):
-    def __init__(self):
+    def __init__(self, repeat: int = 1):
         super().__init__(
             name="My Test",
-            description="Test description"
+            description="Test description",
+            repeat=repeat  # Run test multiple times
         )
     
     def run(self) -> TestResult:
@@ -121,6 +132,10 @@ class MyTest(TestCase):
             return TestResult.FAILED
         
         return TestResult.PASSED
+
+# Usage
+runner.add_test(MyTest(repeat=3))  # Run this test 3 times
+runner.run_tests(iterations=2)     # Run suite 2 times
 ```
 
 ## Common TETRA PEI Commands
@@ -209,11 +224,12 @@ python -m unittest discover tetra_pei_test/tests -v
 
 ## Statistics
 
-- **Total Code**: ~2800 lines of Python
-- **Unit Tests**: 29 tests (all passing)
+- **Total Code**: ~3000 lines of Python
+- **Unit Tests**: 42 tests (all passing)
 - **Example Tests**: 6 test cases
 - **AT Commands**: 20+ implemented
 - **Max Radios**: 8 simultaneous connections
+- **Test Repetition**: Individual tests and suite iterations
 - **Documentation**: 12KB README + 10KB Copilot instructions
 
 ## Troubleshooting

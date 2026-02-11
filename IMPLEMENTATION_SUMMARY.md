@@ -26,18 +26,21 @@ A complete, production-ready Python framework for automated testing of TETRA rad
 3. **TestBase** (test_base.py)
    - Abstract base class for all tests
    - Setup/run/teardown lifecycle
+   - Individual test repetition support
    - Assertion helpers (assert_true, assert_equal, etc.)
    - Test result tracking and timing
+   - Result aggregation for repeated tests
    - Wait with timeout utility
-   - 206 lines of code
+   - ~280 lines of code
 
 4. **TestRunner** (test_runner.py)
    - Test execution orchestration
+   - Suite iteration support
    - Radio connection management
    - Result collection and reporting
    - Test suite execution
    - Comprehensive summary generation
-   - 260 lines of code
+   - ~290 lines of code
 
 5. **ConfigManager** (config_manager.py)
    - YAML/JSON configuration file support
@@ -77,8 +80,9 @@ Comprehensive unit test suite:
 1. **test_radio_connection.py** - 8 tests for RadioConnection
 2. **test_tetra_pei.py** - 13 tests for TetraPEI
 3. **test_config_manager.py** - 8 tests for ConfigManager
+4. **test_repeat_functionality.py** - 13 tests for repeat features
 
-**Total: 29 unit tests, 100% passing**
+**Total: 42 unit tests, 100% passing**
 
 ### Scripts and Tools
 
@@ -87,7 +91,8 @@ Comprehensive unit test suite:
    - Configuration file handling
    - Test listing
    - Default config generation
-   - 109 lines of code
+   - Test and suite repetition options
+   - ~140 lines of code
 
 9. **demo.py** - Demonstration script
    - Uses simulators for complete demo
@@ -148,10 +153,12 @@ Comprehensive unit test suite:
 ### ✅ Test Framework
 - Base class for custom tests
 - Lifecycle management
+- Individual test repetition
+- Suite iteration support
 - Assertion helpers
 - Result tracking
 - Error handling
-- Detailed logging
+- Comprehensive logging
 
 ### ✅ Configuration Management
 - YAML and JSON support
@@ -189,13 +196,14 @@ Comprehensive unit test suite:
 
 ## Statistics
 
-- **Total Lines of Code**: ~2,800
-- **Python Files**: 17
-- **Unit Tests**: 29 (100% passing)
+- **Total Lines of Code**: ~3,200
+- **Python Files**: 18
+- **Unit Tests**: 42 (100% passing)
 - **Example Tests**: 6
 - **AT Commands**: 20+
-- **Documentation**: ~28KB
+- **Documentation**: ~30KB
 - **Max Radios**: 8 simultaneous
+- **Test Repetition**: Individual and suite levels
 - **Dependencies**: 1 (PyYAML)
 
 ## Code Quality
@@ -263,12 +271,25 @@ OK - All tests passing
 - RadioConnection: 8 tests
 - TetraPEI: 13 tests
 - ConfigManager: 8 tests
+- Repeat Functionality: 13 tests
 
 ## Usage Examples
 
 ### Run Tests
 ```bash
 python run_tests.py --config config.yaml
+```
+
+### Repeat Tests
+```bash
+# Repeat each test 3 times
+python run_tests.py --config config.yaml --repeat-test 3
+
+# Run suite 5 times
+python run_tests.py --config config.yaml --repeat-suite 5
+
+# Combine both
+python run_tests.py --config config.yaml --repeat-test 2 --repeat-suite 3
 ```
 
 ### Create Config

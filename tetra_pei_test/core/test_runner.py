@@ -122,9 +122,12 @@ class TestRunner:
         for test in tests:
             self.add_test(test)
     
-    def run_tests(self) -> bool:
+    def run_tests(self, iterations: int = 1) -> bool:
         """
         Execute all test cases in the suite.
+        
+        Args:
+            iterations: Number of times to run the entire test suite (default: 1)
         
         Returns:
             True if all tests passed, False otherwise
@@ -133,50 +136,71 @@ class TestRunner:
             logger.warning("No tests to run")
             return True
         
+        iterations = max(1, iterations)  # Ensure at least 1 iteration
+        
         logger.info(f"\n{'#'*60}")
         logger.info(f"# Starting Test Execution")
         logger.info(f"# Total tests: {len(self.tests)}")
+        if iterations > 1:
+            logger.info(f"# Suite iterations: {iterations}")
         logger.info(f"# Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         logger.info(f"{'#'*60}\n")
         
-        # Setup radios
-        if not self.setup_radios():
-            logger.error("Failed to setup radios. Aborting test execution.")
-            return False
+        # Clear previous results
+        self.results.clear()
         
-        try:
-            # Run each test
-            for i, test in enumerate(self.tests, 1):
-                logger.info(f"\n[Test {i}/{len(self.tests)}]")
-                
-                # Set radios for test
-                test.set_radios(self.radios)
-                
-                # Execute test
-                result = test.execute()
-                
-                # Record result
-                self.results.append({
-                    'test_name': test.name,
-                    'description': test.description,
-                    'result': result,
-                    'duration': test.get_duration(),
-                    'error_message': test.error_message,
-                    'timestamp': datetime.now()
-                })
-        
-        finally:
-            # Always teardown radios
-            self.teardown_radios()
+        # Run test suite multiple times if iterations > 1
+        for suite_iteration in range(iterations):
+            if iterations > 1:
+                logger.info(f"\n{'='*60}")
+                logger.info(f"Suite Iteration {suite_iteration + 1}/{iterations}")
+                logger.info(f"{'='*60}\n")
+            
+            # Setup radios for this iteration
+            if not self.setup_radios():
+                logger.error("Failed to setup radios. Aborting test execution.")
+                return False
+            
+            try:
+                # Run each test
+                for i, test in enumerate(self.tests, 1):
+                    logger.info(f"\n[Test {i}/{len(self.tests)}]")
+                    
+                    # Set radios for test
+                    test.set_radios(self.radios)
+                    
+                    # Execute test
+                    result = test.execute()
+                    
+                    # Record result with iteration info
+                    self.results.append({
+                        'test_name': test.name,
+                        'description': test.description,
+                        'result': result,
+                        'duration': test.get_duration(),
+                        'error_message': test.error_message,
+                        'timestamp': datetime.now(),
+                        'suite_iteration': suite_iteration + 1 if iterations > 1 else None,
+                        'iteration_results': test.iteration_results if hasattr(test, 'iteration_results') else None
+                    })
+            
+            finally:
+                # Always teardown radios after each suite iteration
+                self.teardown_radios()
         
         # Print summary
-        self._print_summary()
+        self._print_summary(iterations)
         
         # Return overall success
         return self._all_tests_passed()
     
-    def _print_summary(self) -> None:
-        """Print test execution summary."""
+    def _print_summary(self, iterations: int = 1) -> None:
+        """
+        Print test execution summary.
+        
+        Args:
+            iterations: Number of suite iterations (for display purposes)
+        """
         passed = sum(1 for r in self.results if r['result'] == TestResult.PASSED)
         failed = sum(1 for r in self.results if r['result'] == TestResult.FAILED)
         errors = sum(1 for r in self.results if r['result'] == TestResult.ERROR)
@@ -188,6 +212,9 @@ class TestRunner:
         logger.info(f"# Test Execution Summary")
         logger.info(f"{'#'*60}")
         logger.info(f"Total tests:   {len(self.results)}")
+        if iterations > 1:
+            logger.info(f"Suite iterations: {iterations}")
+            logger.info(f"Tests per iteration: {len(self.tests)}")
         logger.info(f"Passed:        {passed}")
         logger.info(f"Failed:        {failed}")
         logger.info(f"Errors:        {errors}")
@@ -203,6 +230,8 @@ class TestRunner:
             for result in self.results:
                 if result['result'] in [TestResult.FAILED, TestResult.ERROR]:
                     logger.info(f"\nTest: {result['test_name']}")
+                    if result.get('suite_iteration'):
+                        logger.info(f"Suite iteration: {result['suite_iteration']}")
                     logger.info(f"Result: {result['result'].value}")
                     logger.info(f"Duration: {result['duration']:.2f}s")
                     if result['error_message']:

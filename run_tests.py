@@ -61,6 +61,22 @@ Examples:
         help='List available test cases and exit'
     )
     
+    parser.add_argument(
+        '--repeat-test',
+        type=int,
+        default=1,
+        metavar='N',
+        help='Number of times to repeat each test case (default: 1)'
+    )
+    
+    parser.add_argument(
+        '--repeat-suite',
+        type=int,
+        default=1,
+        metavar='N',
+        help='Number of times to run the entire test suite (default: 1)'
+    )
+    
     args = parser.parse_args()
     
     # Setup logging
@@ -111,18 +127,20 @@ Examples:
     # Create test runner
     runner = TestRunner(config_manager)
     
-    # Add all test cases
+    # Add all test cases with repeat count if specified
+    test_repeat = max(1, args.repeat_test)
     runner.add_tests([
-        IndividualCallTest(),
-        GroupCallTest(),
-        PTTTest(),
-        TextMessageTest(),
-        StatusMessageTest(),
-        GroupRegistrationTest()
+        IndividualCallTest(repeat=test_repeat),
+        GroupCallTest(repeat=test_repeat),
+        PTTTest(repeat=test_repeat),
+        TextMessageTest(repeat=test_repeat),
+        StatusMessageTest(repeat=test_repeat),
+        GroupRegistrationTest(repeat=test_repeat)
     ])
     
-    # Run tests
-    success = runner.run_tests()
+    # Run tests with suite iterations if specified
+    suite_iterations = max(1, args.repeat_suite)
+    success = runner.run_tests(iterations=suite_iterations)
     
     # Return appropriate exit code
     return 0 if success else 1

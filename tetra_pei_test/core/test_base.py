@@ -32,21 +32,24 @@ class TestCase(ABC):
     All test cases should inherit from this class and implement the run() method.
     """
     
-    def __init__(self, name: str, description: str = ""):
+    def __init__(self, name: str, description: str = "", repeat: int = 1):
         """
         Initialize test case.
         
         Args:
             name: Test case name
             description: Test case description
+            repeat: Number of times to repeat this test (default: 1)
         """
         self.name = name
         self.description = description
+        self.repeat = max(1, repeat)  # Ensure at least 1 iteration
         self.result = TestResult.SKIPPED
         self.error_message = ""
         self.start_time = 0.0
         self.end_time = 0.0
         self.radios: Dict[str, TetraPEI] = {}
+        self.iteration_results: List[TestResult] = []  # Track results of each iteration
     
     def set_radios(self, radios: Dict[str, TetraPEI]) -> None:
         """
@@ -91,31 +94,72 @@ class TestCase(ABC):
     def execute(self) -> TestResult:
         """
         Execute the complete test lifecycle (setup, run, teardown).
+        Supports repeating the test multiple times if repeat > 1.
         
         Returns:
-            TestResult indicating test outcome
+            TestResult indicating test outcome (worst result if repeated)
         """
         logger.info(f"{'='*60}")
         logger.info(f"Executing test: {self.name}")
         if self.description:
             logger.info(f"Description: {self.description}")
+        if self.repeat > 1:
+            logger.info(f"Repeat count: {self.repeat}")
         logger.info(f"{'='*60}")
         
         self.start_time = time.time()
+        self.iteration_results = []
         
+        # Run test multiple times if repeat > 1
+        for iteration in range(self.repeat):
+            if self.repeat > 1:
+                logger.info(f"\n--- Iteration {iteration + 1}/{self.repeat} ---")
+            
+            iteration_result = self._execute_single_iteration()
+            self.iteration_results.append(iteration_result)
+            
+            # If an iteration fails and we're repeating, log it but continue
+            if iteration_result in [TestResult.FAILED, TestResult.ERROR] and self.repeat > 1:
+                logger.warning(f"Iteration {iteration + 1} {iteration_result.value}")
+        
+        self.end_time = time.time()
+        
+        # Determine overall result (worst case from all iterations)
+        self.result = self._aggregate_results()
+        
+        # Log final result
+        duration = self.end_time - self.start_time
+        if self.repeat > 1:
+            passed = sum(1 for r in self.iteration_results if r == TestResult.PASSED)
+            logger.info(f"\nTest {self.name}: {self.result.value} ({passed}/{self.repeat} iterations passed, duration: {duration:.2f}s)")
+        else:
+            logger.info(f"Test {self.name}: {self.result.value} (duration: {duration:.2f}s)")
+        
+        if self.error_message:
+            logger.info(f"Error message: {self.error_message}")
+        logger.info(f"{'='*60}\n")
+        
+        return self.result
+    
+    def _execute_single_iteration(self) -> TestResult:
+        """
+        Execute a single iteration of the test.
+        
+        Returns:
+            TestResult for this iteration
+        """
         try:
             # Setup phase
             if not self.setup():
-                self.result = TestResult.ERROR
                 self.error_message = "Setup failed"
                 logger.error(f"Test {self.name}: Setup failed")
-                return self.result
+                return TestResult.ERROR
             
             # Run test
-            self.result = self.run()
+            result = self.run()
             
         except Exception as e:
-            self.result = TestResult.ERROR
+            result = TestResult.ERROR
             self.error_message = f"Exception: {str(e)}"
             logger.error(f"Test {self.name} raised exception: {e}", exc_info=True)
         
@@ -125,17 +169,29 @@ class TestCase(ABC):
                 self.teardown()
             except Exception as e:
                 logger.error(f"Teardown failed for {self.name}: {e}")
-            
-            self.end_time = time.time()
         
-        # Log result
-        duration = self.end_time - self.start_time
-        logger.info(f"Test {self.name}: {self.result.value} (duration: {duration:.2f}s)")
-        if self.error_message:
-            logger.info(f"Error message: {self.error_message}")
-        logger.info(f"{'='*60}\n")
+        return result
+    
+    def _aggregate_results(self) -> TestResult:
+        """
+        Aggregate results from multiple iterations.
+        Returns the worst result (ERROR > FAILED > SKIPPED > PASSED).
         
-        return self.result
+        Returns:
+            Aggregated TestResult
+        """
+        if not self.iteration_results:
+            return TestResult.SKIPPED
+        
+        # Priority: ERROR > FAILED > SKIPPED > PASSED
+        if TestResult.ERROR in self.iteration_results:
+            return TestResult.ERROR
+        elif TestResult.FAILED in self.iteration_results:
+            return TestResult.FAILED
+        elif TestResult.SKIPPED in self.iteration_results:
+            return TestResult.SKIPPED
+        else:
+            return TestResult.PASSED
     
     def assert_true(self, condition: bool, message: str = "") -> None:
         """

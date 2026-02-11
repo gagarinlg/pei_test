@@ -17,6 +17,7 @@ A comprehensive Python-based automated testing framework for TETRA radios contro
 - **Detailed Logging**: Comprehensive test execution reporting
 - **Error Handling**: Robust error detection and reporting
 - **Extensible Architecture**: Easy to add new test cases
+- **Test Repetition**: Repeat individual tests or entire test suite multiple times
 - **Unit Testing**: Complete test suite with radio simulator
 - **Clean, Maintainable Code**: Well-documented with clear structure
 
@@ -157,6 +158,24 @@ Run tests with debug logging:
 python run_tests.py --config config.yaml --log-level DEBUG
 ```
 
+Repeat each test case 3 times (useful for detecting flaky tests):
+
+```bash
+python run_tests.py --config config.yaml --repeat-test 3
+```
+
+Run the entire test suite 5 times:
+
+```bash
+python run_tests.py --config config.yaml --repeat-suite 5
+```
+
+Combine both (each test runs 3 times, and entire suite runs 2 times):
+
+```bash
+python run_tests.py --config config.yaml --repeat-test 3 --repeat-suite 2
+```
+
 ### Using the Framework in Code
 
 ```python
@@ -173,12 +192,12 @@ config = ConfigManager('config.yaml')
 # Create test runner
 runner = TestRunner(config)
 
-# Add tests
-runner.add_test(IndividualCallTest())
+# Add tests (optionally with repeat count)
+runner.add_test(IndividualCallTest(repeat=3))  # Repeat this test 3 times
 runner.add_test(GroupCallTest())
 
-# Run tests
-success = runner.run_tests()
+# Run tests (optionally run suite multiple times)
+success = runner.run_tests(iterations=2)  # Run entire suite 2 times
 ```
 
 ## Test Cases
@@ -222,6 +241,71 @@ Tests group registration and deregistration.
 - Radio joins multiple groups
 - Radio leaves all groups
 
+## Test Repetition Features
+
+The framework supports two types of test repetition:
+
+### 1. Individual Test Repetition
+
+Run a specific test case multiple times to detect intermittent failures:
+
+**Via Command Line:**
+```bash
+python run_tests.py --config config.yaml --repeat-test 5
+```
+
+**In Code:**
+```python
+# Create a test that will run 5 times
+test = GroupCallTest(repeat=5)
+runner.add_test(test)
+```
+
+When a test is repeated:
+- Each iteration runs independently (setup → run → teardown)
+- Results from all iterations are tracked
+- Overall test result is the worst case (ERROR > FAILED > SKIPPED > PASSED)
+- Logs show iteration progress and pass/fail count
+
+### 2. Test Suite Repetition
+
+Run the entire test suite multiple times:
+
+**Via Command Line:**
+```bash
+python run_tests.py --config config.yaml --repeat-suite 3
+```
+
+**In Code:**
+```python
+runner.add_tests([test1, test2, test3])
+success = runner.run_tests(iterations=3)
+```
+
+When the suite is repeated:
+- Radios are reconnected between suite iterations
+- Each iteration runs all tests in order
+- Results from all iterations are collected
+- Summary includes total runs across all iterations
+
+### 3. Combined Repetition
+
+You can combine both types for comprehensive testing:
+
+```bash
+python run_tests.py --config config.yaml --repeat-test 2 --repeat-suite 3
+```
+
+This will:
+1. Run each test 2 times per suite iteration
+2. Run the entire suite 3 times
+3. Result in 6 executions per test (2 × 3)
+
+**Use Cases:**
+- **Flaky test detection**: Use `--repeat-test` to catch intermittent failures
+- **Stress testing**: Use `--repeat-suite` to test system stability over time
+- **Reliability verification**: Combine both to ensure consistent behavior
+
 ## Creating Custom Tests
 
 To create a custom test case, inherit from the `TestCase` base class:
@@ -233,10 +317,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 class MyCustomTest(TestCase):
-    def __init__(self):
+    def __init__(self, repeat: int = 1):
         super().__init__(
             name="My Custom Test",
-            description="Description of what this test does"
+            description="Description of what this test does",
+            repeat=repeat  # Optional: specify repeat count
         )
     
     def run(self) -> TestResult:

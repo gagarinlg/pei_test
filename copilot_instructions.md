@@ -94,10 +94,11 @@ class NewFeatureTest(TestCase):
     Detailed explanation of what this test validates.
     """
     
-    def __init__(self, param1: str = "default"):
+    def __init__(self, param1: str = "default", repeat: int = 1):
         super().__init__(
             name="Descriptive Test Name",
-            description="Brief description"
+            description="Brief description",
+            repeat=repeat  # Optional: run test multiple times
         )
         self.param1 = param1
     
@@ -208,6 +209,61 @@ python -m unittest tetra_pei_test.tests.test_tetra_pei
 
 # Run with verbose output
 python -m unittest discover tetra_pei_test/tests -v
+```
+
+## Test Repetition
+
+### Individual Test Repetition
+
+Tests can be configured to run multiple times:
+
+```python
+class MyTest(TestCase):
+    def __init__(self, repeat: int = 1):
+        super().__init__(
+            name="My Test",
+            description="Test description",
+            repeat=repeat
+        )
+```
+
+**Key Points:**
+- Each iteration runs independently (setup → run → teardown)
+- All iteration results are tracked in `self.iteration_results`
+- Final result is worst case: ERROR > FAILED > SKIPPED > PASSED
+- Use for flaky test detection and reliability testing
+
+### Suite Repetition
+
+The entire test suite can be run multiple times:
+
+```python
+runner = TestRunner(config)
+runner.add_tests([test1, test2])
+runner.run_tests(iterations=5)
+```
+
+**Key Points:**
+- Radios reconnect between suite iterations
+- Each iteration logs separately
+- Results from all iterations are collected
+- Use for stress testing and long-term reliability
+
+### Testing Repeated Tests
+
+When testing the repeat functionality:
+
+```python
+def test_repeat_functionality(self):
+    """Test that repeat works correctly."""
+    test = MyTest(repeat=3)
+    test.execute()
+    
+    # Verify execution count
+    self.assertEqual(len(test.iteration_results), 3)
+    
+    # Check aggregated result
+    self.assertEqual(test.result, TestResult.PASSED)
 ```
 
 ## Common Patterns

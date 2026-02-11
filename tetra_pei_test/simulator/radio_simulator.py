@@ -48,7 +48,7 @@ class TetraRadioSimulator:
         self.issi = issi
         
         self.state = RadioState.IDLE
-        self.registered = False
+        self.registered = True  # Default to registered
         self.joined_groups: Set[str] = set()
         self.in_call_with: Optional[str] = None
         self.ptt_pressed = False
@@ -61,6 +61,8 @@ class TetraRadioSimulator:
         # Configuration
         self.auto_register = True
         self.call_response_delay = 0.5
+        self.simulate_no_answer = False  # Set to True to simulate NO ANSWER
+        self.simulate_no_carrier = False  # Set to True to simulate NO CARRIER on hangup
         
         logger.info(f"TetraRadioSimulator initialized: {radio_id} (ISSI: {issi})")
     
@@ -249,9 +251,16 @@ class TetraRadioSimulator:
         
         # Hangup
         elif command == "ATH":
+            # Check if we should simulate NO CARRIER (call dropped)
+            if self.simulate_no_carrier:
+                logger.info(f"Simulator {self.radio_id} simulating NO CARRIER on hangup")
+                self._send_response("NO CARRIER")
+                self.simulate_no_carrier = False  # Reset flag
+            else:
+                self._send_response("OK")
+            
             self.state = RadioState.IDLE
             self.in_call_with = None
-            self._send_response("OK")
         
         # PTT press/release
         elif command.startswith("AT+CTXD"):
@@ -273,29 +282,210 @@ class TetraRadioSimulator:
         elif command.startswith("AT+CMGS"):
             self._send_response("OK")
         
+        # Audio volume commands
+        elif command.startswith("AT+CLVL="):
+            # Set volume
+            self._send_response("OK")
+        elif command.startswith("AT+CLVL?"):
+            # Get volume
+            self._send_response("+CLVL: 50")
+            self._send_response("OK")
+        
+        # Encryption commands
+        elif command.startswith("AT+CTENC="):
+            self._send_response("OK")
+        elif command.startswith("AT+CTENC?"):
+            self._send_response("+CTENC: 0,0")
+            self._send_response("OK")
+        
+        # Signal strength
+        elif command.startswith("AT+CSQ"):
+            self._send_response("+CSQ: 25,0")
+            self._send_response("OK")
+        
+        # Network attachment
+        elif command.startswith("AT+CGATT="):
+            self._send_response("OK")
+        elif command.startswith("AT+CGATT?"):
+            state = 1 if self.registered else 0
+            self._send_response(f"+CGATT: {state}")
+            self._send_response("OK")
+        
+        # Operating mode
+        elif command.startswith("AT+CTOM="):
+            self._send_response("OK")
+        
+        # DGNA mode
+        elif command.startswith("AT+CTDGNA="):
+            self._send_response("OK")
+        
+        # Location info
+        elif command.startswith("AT+CTLOC="):
+            self._send_response("OK")
+        
+        # Ambient listening
+        elif command.startswith("AT+CTAL="):
+            self._send_response("OK")
+        
+        # Read/delete messages
+        elif command.startswith("AT+CMGR="):
+            self._send_response("+CMGR: 0,\"1234\",\"Test Message\"")
+            self._send_response("OK")
+        elif command.startswith("AT+CMGD="):
+            self._send_response("OK")
+        
+        # New TETRA PEI Commands
+        # Flash class
+        elif command.startswith("AT+FLCASS="):
+            self._send_response("OK")
+        elif command.startswith("AT+FLCASS?"):
+            self._send_response("+FLCASS: 0")
+            self._send_response("OK")
+        
+        # Error reporting
+        elif command.startswith("AT+CMEE="):
+            self._send_response("OK")
+        elif command.startswith("AT+CMEE?"):
+            self._send_response("+CMEE: 0")
+            self._send_response("OK")
+        
+        # Clock
+        elif command.startswith("AT+CCLK="):
+            self._send_response("OK")
+        elif command.startswith("AT+CCLK?"):
+            self._send_response('+CCLK: "26/02/11,21:00:00+00"')
+            self._send_response("OK")
+        
+        # DCD status
+        elif command.startswith("AT+CTDCD?"):
+            self._send_response("+CTDCD: 0")
+            self._send_response("OK")
+        
+        # Trunked/Direct mode
+        elif command.startswith("AT+CTTCT?"):
+            self._send_response("+CTTCT: 0,TMO")
+            self._send_response("OK")
+        
+        # Service provider
+        elif command.startswith("AT+CTSP="):
+            self._send_response("OK")
+        elif command.startswith("AT+CTSP?"):
+            self._send_response('+CTSP: "Test Provider"')
+            self._send_response("OK")
+        
+        # Primary channel
+        elif command.startswith("AT+PCSSI?"):
+            self._send_response("+PCSSI: 1001")
+            self._send_response("OK")
+        
+        # Forwarding number
+        elif command.startswith("AT+CNUMF="):
+            self._send_response("OK")
+        elif command.startswith("AT+CNUMF?"):
+            self._send_response('+CNUMF: "12345"')
+            self._send_response("OK")
+        
+        # Subscriber number
+        elif command.startswith("AT+CNUMS?"):
+            self._send_response('+CNUMS: "1001"')
+            self._send_response("OK")
+        
+        # Dialing number
+        elif command.startswith("AT+CNUMD?"):
+            self._send_response('+CNUMD: "2001"')
+            self._send_response("OK")
+        
+        # SDS configuration
+        elif command.startswith("AT+CTSDC="):
+            self._send_response("OK")
+        elif command.startswith("AT+CTSDC?"):
+            self._send_response("+CTSDC: 0")
+            self._send_response("OK")
+        
+        # SDS status
+        elif command.startswith("AT+CTSDS?"):
+            self._send_response("+CTSDS: 0,Ready")
+            self._send_response("OK")
+        
+        # Message send (CTMGS)
+        elif command.startswith("AT+CTMGS="):
+            self._send_response("OK")
+        
         # Unknown command
         else:
             logger.warning(f"Unknown command for {self.radio_id}: {command}")
             self._send_response("ERROR")
     
     def _handle_dial(self, command: str) -> None:
-        """Handle dial command."""
-        # Extract target from ATD command
-        # ATD<number>; for individual call
-        # ATD<number># for group call
+        """
+        Handle dial command.
         
-        if ';' in command:
+        Returns appropriate response based on radio state:
+        - OK: Call initiated successfully (radio is idle)
+        - BUSY: Called party is busy (already in a call)
+        - NO ANSWER: Simulated no answer scenario
+        - NO DIALTONE: Simulated no network scenario
+        
+        Supports:
+        - Individual calls: ATD<number>;
+        - Group calls: ATD<number>#
+        - Emergency individual: ATD<number>!;
+        - Emergency group: ATD<number>!#
+        """
+        # Extract target from ATD command
+        target = None
+        is_group_call = False
+        is_emergency = False
+        
+        # Check for emergency flag
+        if '!' in command:
+            is_emergency = True
+        
+        if '!#' in command:
+            # Emergency group call
+            target = command.replace("ATD", "").replace("!#", "").strip()
+            is_group_call = True
+        elif '!;' in command:
+            # Emergency individual call
+            target = command.replace("ATD", "").replace("!;", "").strip()
+            is_group_call = False
+        elif ';' in command:
             # Individual call
             target = command.replace("ATD", "").replace(";", "").strip()
-            self.state = RadioState.IN_CALL
-            self.in_call_with = target
-            logger.info(f"Simulator {self.radio_id} making individual call to {target}")
+            is_group_call = False
         elif '#' in command:
             # Group call
             target = command.replace("ATD", "").replace("#", "").strip()
-            self.state = RadioState.IN_CALL
-            self.in_call_with = target
-            logger.info(f"Simulator {self.radio_id} making group call to {target}")
+            is_group_call = True
+        
+        # Check if this radio is already in a call
+        if self.state == RadioState.IN_CALL or self.state == RadioState.TRANSMITTING:
+            # Radio is busy
+            logger.info(f"Simulator {self.radio_id} is busy, cannot make call to {target}")
+            self._send_response("BUSY")
+            return
+        
+        # Check if not registered (simulate no dialtone)
+        if not self.registered:
+            logger.info(f"Simulator {self.radio_id} not registered, returning NO DIALTONE")
+            self._send_response("NO DIALTONE")
+            return
+        
+        # Check if we should simulate no answer
+        if self.simulate_no_answer:
+            logger.info(f"Simulator {self.radio_id} simulating NO ANSWER for call to {target}")
+            self._send_response("NO ANSWER")
+            return
+        
+        # Successful call
+        self.state = RadioState.IN_CALL
+        self.in_call_with = target
+        
+        call_type = "EMERGENCY " if is_emergency else ""
+        if is_group_call:
+            logger.info(f"Simulator {self.radio_id} making {call_type}group call to {target}")
+        else:
+            logger.info(f"Simulator {self.radio_id} making {call_type}individual call to {target}")
         
         self._send_response("OK")
     
@@ -368,6 +558,23 @@ class TetraRadioSimulator:
         if self.client_socket:
             self._send_response('+CMTI: "SM",1')
             logger.info(f"Simulator {self.radio_id} simulated text message from {sender_issi}")
+    
+    def set_busy_state(self, target: str = "9999") -> None:
+        """
+        Put the radio in a busy state (in a call).
+        
+        Args:
+            target: ISSI or GSSI of the party in call with
+        """
+        self.state = RadioState.IN_CALL
+        self.in_call_with = target
+        logger.info(f"Simulator {self.radio_id} set to busy state (in call with {target})")
+    
+    def clear_busy_state(self) -> None:
+        """Clear the busy state and return to idle."""
+        self.state = RadioState.IDLE
+        self.in_call_with = None
+        logger.info(f"Simulator {self.radio_id} cleared busy state")
     
     def get_state(self) -> Dict[str, any]:
         """Get current simulator state."""

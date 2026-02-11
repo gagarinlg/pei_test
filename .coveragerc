@@ -1,0 +1,19 @@
+[run]
+source = tetra_pei_test
+omit =
+    # Exclude example test cases (documentation/examples, not library code)
+    tetra_pei_test/examples/test_cases.py
+    # Exclude __init__.py files with just imports
+    tetra_pei_test/examples/__init__.py
+    tetra_pei_test/tests/__init__.py
+
+[report]
+# Show missing lines
+show_missing = True
+# Skip covered files
+skip_covered = False
+# Precision for percentages
+precision = 0
+
+[html]
+directory = htmlcov

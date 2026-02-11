@@ -180,6 +180,78 @@ class TestUnsolicitedMessages(unittest.TestCase):
         # In real usage, application can now:
         # 1. Process the command response normally
         # 2. Check unsolicited messages separately to handle the incoming call
+    
+    def test_creg_solicited_response(self):
+        """Test that +CREG: is NOT filtered when it's a solicited response to AT+CREG?"""
+        # When we send AT+CREG?, the +CREG: response should NOT be filtered
+        test_response = "+CREG: 0,1\r\nOK\r\n"
+        
+        filtered, unsolicited = self.pei._filter_unsolicited_messages(test_response, "AT+CREG?")
+        
+        # +CREG: should be kept (solicited)
+        self.assertIn("+CREG:", filtered)
+        self.assertIn("OK", filtered)
+        # Should not be in unsolicited
+        self.assertEqual(len(unsolicited), 0)
+    
+    def test_creg_unsolicited_message(self):
+        """Test that +CREG: IS filtered when it's unsolicited during another command."""
+        # When we send a different command and +CREG: arrives, it should be filtered
+        test_response = "AT+CGMI\r\nSimulatedTetraRadio\r\n+CREG: 0,5\r\nOK\r\n"
+        
+        filtered, unsolicited = self.pei._filter_unsolicited_messages(test_response, "AT+CGMI")
+        
+        # +CREG: should be filtered out (unsolicited)
+        self.assertNotIn("+CREG:", filtered)
+        self.assertIn("SimulatedTetraRadio", filtered)
+        self.assertIn("OK", filtered)
+        # Should be in unsolicited
+        self.assertEqual(len(unsolicited), 1)
+        self.assertIn("+CREG:", unsolicited[0])
+    
+    def test_ctxd_solicited_response(self):
+        """Test that +CTXD: is NOT filtered when it's a solicited response to AT+CTXD?"""
+        # When querying PTT status, the response should be kept
+        test_response = "+CTXD: 1\r\nOK\r\n"
+        
+        filtered, unsolicited = self.pei._filter_unsolicited_messages(test_response, "AT+CTXD?")
+        
+        # +CTXD: should be kept (solicited)
+        self.assertIn("+CTXD:", filtered)
+        # Should not be in unsolicited
+        self.assertEqual(len(unsolicited), 0)
+    
+    def test_ctxd_unsolicited_event(self):
+        """Test that +CTXD: IS filtered when it's an unsolicited PTT event."""
+        # When sending a different command and PTT event arrives, it should be filtered
+        test_response = "SimulatedTetraRadio\r\n+CTXD: 1\r\nOK\r\n"
+        
+        filtered, unsolicited = self.pei._filter_unsolicited_messages(test_response, "AT+CGMI")
+        
+        # +CTXD: should be filtered out (unsolicited)
+        self.assertNotIn("+CTXD:", filtered)
+        # Should be in unsolicited
+        self.assertEqual(len(unsolicited), 1)
+        self.assertIn("+CTXD:", unsolicited[0])
+    
+    def test_mixed_solicited_and_unsolicited(self):
+        """Test handling of both solicited and unsolicited messages in same response."""
+        # Send AT+CREG? but also receive an incoming call notification
+        test_response = "+CREG: 0,1\r\nRING\r\n+CLIP: \"5555\",145\r\nOK\r\n"
+        
+        filtered, unsolicited = self.pei._filter_unsolicited_messages(test_response, "AT+CREG?")
+        
+        # +CREG: should be kept (solicited for this command)
+        self.assertIn("+CREG:", filtered)
+        self.assertIn("OK", filtered)
+        # RING and +CLIP should be filtered (unsolicited)
+        self.assertNotIn("RING", filtered)
+        self.assertNotIn("CLIP", filtered)
+        # Unsolicited should contain RING and CLIP but not CREG
+        self.assertEqual(len(unsolicited), 2)
+        self.assertTrue(any("RING" in msg for msg in unsolicited))
+        self.assertTrue(any("CLIP" in msg for msg in unsolicited))
+        self.assertFalse(any("CREG" in msg for msg in unsolicited))
 
 
 if __name__ == '__main__':

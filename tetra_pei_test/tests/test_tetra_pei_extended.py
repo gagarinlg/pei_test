@@ -194,9 +194,9 @@ class TestTetraPEIExtended(unittest.TestCase):
         self.connection.is_connected.return_value = True
         self.connection.send.return_value = True
         # First command succeeds, second fails
-        self.connection.receive_until.side_effect = [
-            (True, "OK\r\n"),
-            (False, "ERROR\r\n")
+        self.connection.receive_until_any.side_effect = [
+            (True, "OK\r\n", "OK\r\n"),
+            (True, "ERROR\r\n", "ERROR\r\n")
         ]
         
         result = self.pei.enable_unsolicited_notifications()

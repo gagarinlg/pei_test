@@ -1,0 +1,274 @@
+"""
+Test Framework Base Classes
+
+Provides base classes and utilities for creating TETRA PEI tests.
+"""
+
+import logging
+import time
+from abc import ABC, abstractmethod
+from typing import Dict, List, Optional, Any
+from enum import Enum
+
+from .tetra_pei import TetraPEI
+from .radio_connection import RadioConnection
+
+
+logger = logging.getLogger(__name__)
+
+
+class TestResult(Enum):
+    """Test execution results."""
+    PASSED = "PASSED"
+    FAILED = "FAILED"
+    SKIPPED = "SKIPPED"
+    ERROR = "ERROR"
+
+
+class TestCase(ABC):
+    """
+    Base class for TETRA PEI test cases.
+    
+    All test cases should inherit from this class and implement the run() method.
+    """
+    
+    def __init__(self, name: str, description: str = "", repeat: int = 1):
+        """
+        Initialize test case.
+        
+        Args:
+            name: Test case name
+            description: Test case description
+            repeat: Number of times to repeat this test (default: 1)
+        """
+        self.name = name
+        self.description = description
+        self.repeat = max(1, repeat)  # Ensure at least 1 iteration
+        self.result = TestResult.SKIPPED
+        self.error_message = ""
+        self.start_time = 0.0
+        self.end_time = 0.0
+        self.radios: Dict[str, TetraPEI] = {}
+        self.iteration_results: List[TestResult] = []  # Track results of each iteration
+    
+    def set_radios(self, radios: Dict[str, TetraPEI]) -> None:
+        """
+        Set the radio instances for this test.
+        
+        Args:
+            radios: Dictionary mapping radio_id to TetraPEI instance
+        """
+        self.radios = radios
+    
+    @abstractmethod
+    def run(self) -> TestResult:
+        """
+        Execute the test case.
+        
+        This method must be implemented by subclasses.
+        
+        Returns:
+            TestResult indicating test outcome
+        """
+        pass
+    
+    def setup(self) -> bool:
+        """
+        Setup method called before test execution.
+        
+        Override this method to add custom setup logic.
+        
+        Returns:
+            True if setup successful, False otherwise
+        """
+        return True
+    
+    def teardown(self) -> None:
+        """
+        Teardown method called after test execution.
+        
+        Override this method to add custom cleanup logic.
+        """
+        pass
+    
+    def execute(self) -> TestResult:
+        """
+        Execute the complete test lifecycle (setup, run, teardown).
+        Supports repeating the test multiple times if repeat > 1.
+        
+        Returns:
+            TestResult indicating test outcome (worst result if repeated)
+        """
+        logger.info(f"{'='*60}")
+        logger.info(f"Executing test: {self.name}")
+        if self.description:
+            logger.info(f"Description: {self.description}")
+        if self.repeat > 1:
+            logger.info(f"Repeat count: {self.repeat}")
+        logger.info(f"{'='*60}")
+        
+        self.start_time = time.time()
+        self.iteration_results = []
+        
+        # Run test multiple times if repeat > 1
+        for iteration in range(self.repeat):
+            if self.repeat > 1:
+                logger.info(f"\n--- Iteration {iteration + 1}/{self.repeat} ---")
+            
+            iteration_result = self._execute_single_iteration()
+            self.iteration_results.append(iteration_result)
+            
+            # If an iteration fails and we're repeating, log it but continue
+            if iteration_result in [TestResult.FAILED, TestResult.ERROR] and self.repeat > 1:
+                logger.warning(f"Iteration {iteration + 1} {iteration_result.value}")
+        
+        self.end_time = time.time()
+        
+        # Determine overall result (worst case from all iterations)
+        self.result = self._aggregate_results()
+        
+        # Log final result
+        duration = self.end_time - self.start_time
+        if self.repeat > 1:
+            passed = sum(1 for r in self.iteration_results if r == TestResult.PASSED)
+            logger.info(f"\nTest {self.name}: {self.result.value} ({passed}/{self.repeat} iterations passed, duration: {duration:.2f}s)")
+        else:
+            logger.info(f"Test {self.name}: {self.result.value} (duration: {duration:.2f}s)")
+        
+        if self.error_message:
+            logger.info(f"Error message: {self.error_message}")
+        logger.info(f"{'='*60}\n")
+        
+        return self.result
+    
+    def _execute_single_iteration(self) -> TestResult:
+        """
+        Execute a single iteration of the test.
+        
+        Returns:
+            TestResult for this iteration
+        """
+        try:
+            # Setup phase
+            if not self.setup():
+                self.error_message = "Setup failed"
+                logger.error(f"Test {self.name}: Setup failed")
+                return TestResult.ERROR
+            
+            # Run test
+            result = self.run()
+            
+        except Exception as e:
+            result = TestResult.ERROR
+            self.error_message = f"Exception: {str(e)}"
+            logger.error(f"Test {self.name} raised exception: {e}", exc_info=True)
+        
+        finally:
+            # Teardown phase (always executed)
+            try:
+                self.teardown()
+            except Exception as e:
+                logger.error(f"Teardown failed for {self.name}: {e}")
+        
+        return result
+    
+    def _aggregate_results(self) -> TestResult:
+        """
+        Aggregate results from multiple iterations.
+        Returns the worst result (ERROR > FAILED > SKIPPED > PASSED).
+        
+        Returns:
+            Aggregated TestResult
+        """
+        if not self.iteration_results:
+            return TestResult.SKIPPED
+        
+        # Priority: ERROR > FAILED > SKIPPED > PASSED
+        if TestResult.ERROR in self.iteration_results:
+            return TestResult.ERROR
+        elif TestResult.FAILED in self.iteration_results:
+            return TestResult.FAILED
+        elif TestResult.SKIPPED in self.iteration_results:
+            return TestResult.SKIPPED
+        else:
+            return TestResult.PASSED
+    
+    def assert_true(self, condition: bool, message: str = "") -> None:
+        """
+        Assert that a condition is true.
+        
+        Args:
+            condition: Condition to check
+            message: Error message if assertion fails
+        
+        Raises:
+            AssertionError: If condition is false
+        """
+        if not condition:
+            error = f"Assertion failed: {message}" if message else "Assertion failed"
+            logger.error(error)
+            raise AssertionError(error)
+    
+    def assert_false(self, condition: bool, message: str = "") -> None:
+        """
+        Assert that a condition is false.
+        
+        Args:
+            condition: Condition to check
+            message: Error message if assertion fails
+        
+        Raises:
+            AssertionError: If condition is true
+        """
+        self.assert_true(not condition, message)
+    
+    def assert_equal(self, actual: Any, expected: Any, message: str = "") -> None:
+        """
+        Assert that two values are equal.
+        
+        Args:
+            actual: Actual value
+            expected: Expected value
+            message: Error message if assertion fails
+        
+        Raises:
+            AssertionError: If values are not equal
+        """
+        if actual != expected:
+            error = f"Expected {expected}, got {actual}"
+            if message:
+                error = f"{message}: {error}"
+            logger.error(error)
+            raise AssertionError(error)
+    
+    def wait_with_timeout(self, condition_func, timeout: float = 10.0, 
+                         check_interval: float = 0.5) -> bool:
+        """
+        Wait for a condition to become true within a timeout.
+        
+        Args:
+            condition_func: Function that returns True when condition is met
+            timeout: Maximum time to wait in seconds
+            check_interval: Time between checks in seconds
+        
+        Returns:
+            True if condition met, False if timeout
+        """
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout:
+            if condition_func():
+                return True
+            time.sleep(check_interval)
+        
+        return False
+    
+    def get_duration(self) -> float:
+        """Get test execution duration in seconds."""
+        if self.end_time > 0:
+            return self.end_time - self.start_time
+        return 0.0
+    
+    def __repr__(self) -> str:
+        """String representation of the test case."""
+        return f"TestCase('{self.name}', result={self.result.value})"

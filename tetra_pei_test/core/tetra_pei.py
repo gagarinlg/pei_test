@@ -329,32 +329,44 @@ class TetraPEI:
         
         return False
     
-    def make_individual_call(self, target_issi: str) -> bool:
+    def make_individual_call(self, target_issi: str, emergency: bool = False) -> bool:
         """
         Make an individual call to another radio.
         
         Args:
             target_issi: ISSI (Individual Short Subscriber Identity) of target radio
+            emergency: If True, make an emergency call
         
         Returns:
             True if call initiated successfully, False otherwise
         """
-        logger.info(f"Radio {self.radio_id} making individual call to {target_issi}")
-        success, _ = self._send_command(f"ATD{target_issi};", timeout=10.0)
+        if emergency:
+            logger.info(f"Radio {self.radio_id} making EMERGENCY individual call to {target_issi}")
+            # Emergency call uses ! suffix
+            success, _ = self._send_command(f"ATD{target_issi}!;", timeout=10.0)
+        else:
+            logger.info(f"Radio {self.radio_id} making individual call to {target_issi}")
+            success, _ = self._send_command(f"ATD{target_issi};", timeout=10.0)
         return success
     
-    def make_group_call(self, group_id: str) -> bool:
+    def make_group_call(self, group_id: str, emergency: bool = False) -> bool:
         """
         Make a group call.
         
         Args:
             group_id: Group GSSI (Group Short Subscriber Identity)
+            emergency: If True, make an emergency group call
         
         Returns:
             True if call initiated successfully, False otherwise
         """
-        logger.info(f"Radio {self.radio_id} making group call to group {group_id}")
-        success, _ = self._send_command(f"ATD{group_id}#", timeout=10.0)
+        if emergency:
+            logger.info(f"Radio {self.radio_id} making EMERGENCY group call to group {group_id}")
+            # Emergency group call uses !# suffix
+            success, _ = self._send_command(f"ATD{group_id}!#", timeout=10.0)
+        else:
+            logger.info(f"Radio {self.radio_id} making group call to group {group_id}")
+            success, _ = self._send_command(f"ATD{group_id}#", timeout=10.0)
         return success
     
     def answer_call(self) -> bool:
@@ -444,7 +456,8 @@ class TetraPEI:
         success, _ = self._send_command(f"AT+CTSDSR={target},{status_value}")
         return success
     
-    def send_text_message(self, target: str, message: str, is_group: bool = False) -> bool:
+    def send_text_message(self, target: str, message: str, is_group: bool = False, 
+                          priority: int = 0) -> bool:
         """
         Send a text (SDS) message.
         
@@ -452,20 +465,21 @@ class TetraPEI:
             target: Target ISSI or GSSI
             message: Text message content
             is_group: True if sending to group, False for individual
+            priority: Message priority (0=normal, 1=high, 2=emergency)
         
         Returns:
             True if sent successfully, False otherwise
         """
-        logger.info(f"Radio {self.radio_id} sending text message to {target}: {message}")
+        logger.info(f"Radio {self.radio_id} sending text message to {target}: {message} (priority={priority})")
         
         # Escape message if needed
         escaped_message = message.replace('"', '\\"')
         
         # Different command format for group vs individual
         if is_group:
-            success, _ = self._send_command(f'AT+CMGS="{target}#","{escaped_message}"')
+            success, _ = self._send_command(f'AT+CMGS="{target}#","{escaped_message}",{priority}')
         else:
-            success, _ = self._send_command(f'AT+CMGS="{target}","{escaped_message}"')
+            success, _ = self._send_command(f'AT+CMGS="{target}","{escaped_message}",{priority}')
         
         return success
     
@@ -581,3 +595,266 @@ class TetraPEI:
             One of: "OK", "ERROR", "NO CARRIER", "NO DIALTONE", "BUSY", "NO ANSWER", or None
         """
         return self._last_response_type
+    
+    def set_audio_volume(self, volume: int) -> bool:
+        """
+        Set audio volume level.
+        
+        Args:
+            volume: Volume level (0-100)
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        if not 0 <= volume <= 100:
+            logger.error(f"Invalid volume level: {volume}. Must be 0-100")
+            return False
+        
+        logger.info(f"Radio {self.radio_id} setting audio volume to {volume}")
+        success, _ = self._send_command(f"AT+CLVL={volume}")
+        return success
+    
+    def get_audio_volume(self) -> Optional[int]:
+        """
+        Get current audio volume level.
+        
+        Returns:
+            Volume level (0-100) or None if failed
+        """
+        success, response = self._send_command("AT+CLVL?")
+        if success:
+            # Parse response: +CLVL: <level>
+            match = re.search(r'\+CLVL:\s*(\d+)', response)
+            if match:
+                volume = int(match.group(1))
+                logger.info(f"Radio {self.radio_id} volume level: {volume}")
+                return volume
+        return None
+    
+    def enable_encryption(self, key_id: int = 1) -> bool:
+        """
+        Enable encryption for calls.
+        
+        Args:
+            key_id: Encryption key ID to use
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        logger.info(f"Radio {self.radio_id} enabling encryption with key {key_id}")
+        success, _ = self._send_command(f"AT+CTENC={key_id}")
+        return success
+    
+    def disable_encryption(self) -> bool:
+        """
+        Disable encryption for calls.
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        logger.info(f"Radio {self.radio_id} disabling encryption")
+        success, _ = self._send_command("AT+CTENC=0")
+        return success
+    
+    def get_encryption_status(self) -> Optional[Dict[str, any]]:
+        """
+        Get current encryption status.
+        
+        Returns:
+            Dictionary with encryption info or None if failed
+        """
+        success, response = self._send_command("AT+CTENC?")
+        if success:
+            # Parse response: +CTENC: <mode>,<key_id>
+            match = re.search(r'\+CTENC:\s*(\d+),(\d+)', response)
+            if match:
+                mode = int(match.group(1))
+                key_id = int(match.group(2))
+                info = {
+                    'enabled': mode > 0,
+                    'mode': mode,
+                    'key_id': key_id
+                }
+                logger.info(f"Radio {self.radio_id} encryption status: {info}")
+                return info
+        return None
+    
+    def set_operating_mode(self, mode: str) -> bool:
+        """
+        Set radio operating mode.
+        
+        Args:
+            mode: Operating mode ('TMO' for Trunked Mode Operation, 'DMO' for Direct Mode Operation)
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        if mode not in ['TMO', 'DMO']:
+            logger.error(f"Invalid operating mode: {mode}. Must be 'TMO' or 'DMO'")
+            return False
+        
+        logger.info(f"Radio {self.radio_id} setting operating mode to {mode}")
+        success, _ = self._send_command(f"AT+CTOM={mode}")
+        return success
+    
+    def get_signal_strength(self) -> Optional[int]:
+        """
+        Get current signal strength.
+        
+        Returns:
+            Signal strength (0-31, 99=unknown) or None if failed
+        """
+        success, response = self._send_command("AT+CSQ")
+        if success:
+            # Parse response: +CSQ: <rssi>,<ber>
+            match = re.search(r'\+CSQ:\s*(\d+),(\d+)', response)
+            if match:
+                rssi = int(match.group(1))
+                logger.info(f"Radio {self.radio_id} signal strength: {rssi}")
+                return rssi
+        return None
+    
+    def scan_for_networks(self) -> Optional[List[Dict[str, str]]]:
+        """
+        Scan for available TETRA networks.
+        
+        Returns:
+            List of network dictionaries or None if failed
+        """
+        logger.info(f"Radio {self.radio_id} scanning for networks")
+        success, response = self._send_command("AT+COPS=?", timeout=30.0)
+        
+        if success:
+            networks = []
+            # Parse response: +COPS: (status,"name","short","numeric"),...
+            pattern = r'\((\d+),"([^"]+)","([^"]+)","([^"]+)"\)'
+            for match in re.finditer(pattern, response):
+                networks.append({
+                    'status': match.group(1),
+                    'name': match.group(2),
+                    'short_name': match.group(3),
+                    'numeric': match.group(4)
+                })
+            logger.info(f"Radio {self.radio_id} found {len(networks)} networks")
+            return networks
+        return None
+    
+    def read_sds_message(self, index: int) -> Optional[Dict[str, str]]:
+        """
+        Read a stored SDS message.
+        
+        Args:
+            index: Message index
+        
+        Returns:
+            Dictionary with message details or None if failed
+        """
+        logger.info(f"Radio {self.radio_id} reading SDS message at index {index}")
+        success, response = self._send_command(f"AT+CMGR={index}")
+        
+        if success:
+            # Parse message (format varies by radio)
+            return {
+                'index': index,
+                'raw': response
+            }
+        return None
+    
+    def delete_sds_message(self, index: int) -> bool:
+        """
+        Delete a stored SDS message.
+        
+        Args:
+            index: Message index to delete
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        logger.info(f"Radio {self.radio_id} deleting SDS message at index {index}")
+        success, _ = self._send_command(f"AT+CMGD={index}")
+        return success
+    
+    def set_dgna_mode(self, mode: int) -> bool:
+        """
+        Set DGNA (Dynamic Group Number Assignment) mode.
+        
+        Args:
+            mode: DGNA mode (0=disabled, 1=enabled)
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        logger.info(f"Radio {self.radio_id} setting DGNA mode to {mode}")
+        success, _ = self._send_command(f"AT+CTDGNA={mode}")
+        return success
+    
+    def attach_to_network(self) -> bool:
+        """
+        Attach to TETRA network (similar to register but more explicit).
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        logger.info(f"Radio {self.radio_id} attaching to network")
+        success, _ = self._send_command("AT+CGATT=1", timeout=30.0)
+        return success
+    
+    def detach_from_network(self) -> bool:
+        """
+        Detach from TETRA network.
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        logger.info(f"Radio {self.radio_id} detaching from network")
+        success, _ = self._send_command("AT+CGATT=0")
+        return success
+    
+    def get_network_attachment_status(self) -> Optional[bool]:
+        """
+        Get network attachment status.
+        
+        Returns:
+            True if attached, False if not attached, None if failed
+        """
+        success, response = self._send_command("AT+CGATT?")
+        if success:
+            # Parse response: +CGATT: <state>
+            match = re.search(r'\+CGATT:\s*(\d+)', response)
+            if match:
+                state = int(match.group(1))
+                attached = state == 1
+                logger.info(f"Radio {self.radio_id} network attachment: {attached}")
+                return attached
+        return None
+    
+    def send_location_info(self, latitude: float, longitude: float) -> bool:
+        """
+        Send location information (GPS coordinates).
+        
+        Args:
+            latitude: Latitude in decimal degrees
+            longitude: Longitude in decimal degrees
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        logger.info(f"Radio {self.radio_id} sending location: {latitude}, {longitude}")
+        # Format: AT+CTLOC=<lat>,<lon>
+        success, _ = self._send_command(f"AT+CTLOC={latitude},{longitude}")
+        return success
+    
+    def set_ambient_listening(self, enable: bool) -> bool:
+        """
+        Enable or disable ambient listening mode.
+        
+        Args:
+            enable: True to enable, False to disable
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        mode = 1 if enable else 0
+        logger.info(f"Radio {self.radio_id} {'enabling' if enable else 'disabling'} ambient listening")
+        success, _ = self._send_command(f"AT+CTAL={mode}")
+        return success

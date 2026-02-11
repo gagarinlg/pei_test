@@ -731,3 +731,252 @@ class ErrorResponseTest(TestCase):
             self.error_message = f"Exception during test: {str(e)}"
             logger.error(self.error_message, exc_info=True)
             return TestResult.ERROR
+
+
+class EmergencyCallTest(TestCase):
+    """
+    Test emergency call functionality.
+    
+    Scenario:
+    - Radio 1 makes an emergency individual call to Radio 2
+    - Radio 2 answers
+    - Call is maintained
+    - Call is ended
+    """
+    
+    def __init__(self):
+        super().__init__(
+            name="Emergency Call Test",
+            description="Test emergency individual call between two radios"
+        )
+    
+    def run(self) -> TestResult:
+        """Execute emergency call test."""
+        try:
+            if len(self.radios) < 2:
+                self.error_message = "Test requires at least 2 radios"
+                return TestResult.FAILED
+            
+            radio_ids = list(self.radios.keys())
+            radio1 = self.radios[radio_ids[0]]
+            radio2 = self.radios[radio_ids[1]]
+            
+            logger.info(f"Emergency call test: {radio_ids[0]} makes EMERGENCY call to {radio_ids[1]}")
+            
+            # Make emergency call
+            target_issi = "2001"
+            logger.info(f"{radio_ids[0]} making EMERGENCY call to {target_issi}...")
+            
+            if not radio1.make_individual_call(target_issi, emergency=True):
+                self.error_message = f"Failed to initiate emergency call from {radio_ids[0]}"
+                return TestResult.FAILED
+            
+            # Verify OK response
+            if radio1.get_last_response_type() != "OK":
+                self.error_message = f"Expected OK response, got {radio1.get_last_response_type()}"
+                return TestResult.FAILED
+            
+            logger.info("Emergency call initiated successfully")
+            time.sleep(2)
+            
+            # Answer call
+            logger.info(f"{radio_ids[1]} answering emergency call...")
+            if not radio2.answer_call():
+                self.error_message = f"Failed to answer call on {radio_ids[1]}"
+                return TestResult.FAILED
+            
+            logger.info("Emergency call answered, maintaining for 3 seconds...")
+            time.sleep(3)
+            
+            # End call
+            if not radio1.end_call():
+                self.error_message = f"Failed to end emergency call on {radio_ids[0]}"
+                return TestResult.FAILED
+            
+            logger.info("Emergency call ended successfully")
+            return TestResult.PASSED
+            
+        except Exception as e:
+            self.error_message = f"Exception during test: {str(e)}"
+            logger.error(self.error_message, exc_info=True)
+            return TestResult.ERROR
+
+
+class EmergencyGroupCallTest(TestCase):
+    """
+    Test emergency group call functionality.
+    
+    Scenario:
+    - All radios join a group
+    - Radio 1 makes an emergency group call
+    - Call is maintained
+    - Call is ended
+    - All radios leave group
+    """
+    
+    def __init__(self, group_id: str = "9001"):
+        super().__init__(
+            name="Emergency Group Call Test",
+            description=f"Test emergency group call to group {group_id}"
+        )
+        self.group_id = group_id
+    
+    def run(self) -> TestResult:
+        """Execute emergency group call test."""
+        try:
+            if len(self.radios) < 2:
+                self.error_message = "Test requires at least 2 radios"
+                return TestResult.FAILED
+            
+            radio_ids = list(self.radios.keys())
+            
+            logger.info(f"Emergency group call test: All radios join group {self.group_id}, {radio_ids[0]} makes EMERGENCY call")
+            
+            # All radios join the group
+            for radio_id in radio_ids:
+                radio = self.radios[radio_id]
+                if not radio.join_group(self.group_id):
+                    self.error_message = f"Failed to join group on {radio_id}"
+                    return TestResult.FAILED
+                logger.info(f"Radio {radio_id} joined group")
+            
+            time.sleep(2)
+            
+            # First radio makes emergency group call
+            caller_id = radio_ids[0]
+            caller = self.radios[caller_id]
+            
+            logger.info(f"Radio {caller_id} initiating EMERGENCY group call...")
+            if not caller.make_group_call(self.group_id, emergency=True):
+                self.error_message = f"Failed to initiate emergency group call from {caller_id}"
+                return TestResult.FAILED
+            
+            # Verify OK response
+            if caller.get_last_response_type() != "OK":
+                self.error_message = f"Expected OK response, got {caller.get_last_response_type()}"
+                return TestResult.FAILED
+            
+            logger.info("Emergency group call initiated, maintaining for 5 seconds...")
+            time.sleep(5)
+            
+            # End group call
+            if not caller.end_call():
+                self.error_message = f"Failed to end emergency group call on {caller_id}"
+                return TestResult.FAILED
+            
+            logger.info("Emergency group call ended successfully")
+            return TestResult.PASSED
+            
+        except Exception as e:
+            self.error_message = f"Exception during test: {str(e)}"
+            logger.error(self.error_message, exc_info=True)
+            return TestResult.ERROR
+    
+    def teardown(self) -> None:
+        """Leave group after test."""
+        try:
+            for radio_id, radio in self.radios.items():
+                radio.leave_group(self.group_id)
+                logger.info(f"Radio {radio_id} left group {self.group_id}")
+        except Exception as e:
+            logger.error(f"Error in teardown: {e}")
+
+
+class HighPriorityMessageTest(TestCase):
+    """
+    Test sending high-priority text messages.
+    
+    Scenario:
+    - Radio 1 sends a high-priority text message to Radio 2
+    """
+    
+    def __init__(self):
+        super().__init__(
+            name="High Priority Message Test",
+            description="Test sending high-priority text message"
+        )
+    
+    def run(self) -> TestResult:
+        """Execute high priority message test."""
+        try:
+            if len(self.radios) < 2:
+                self.error_message = "Test requires at least 2 radios"
+                return TestResult.FAILED
+            
+            radio_ids = list(self.radios.keys())
+            radio1 = self.radios[radio_ids[0]]
+            
+            target_issi = "2001"
+            message = "URGENT: High priority message"
+            
+            logger.info(f"High priority message test: {radio_ids[0]} -> {radio_ids[1]}")
+            
+            # Send high-priority message
+            if not radio1.send_text_message(target_issi, message, priority=1):
+                self.error_message = f"Failed to send high-priority message from {radio_ids[0]}"
+                return TestResult.FAILED
+            
+            logger.info("High-priority message sent successfully")
+            return TestResult.PASSED
+            
+        except Exception as e:
+            self.error_message = f"Exception during test: {str(e)}"
+            logger.error(self.error_message, exc_info=True)
+            return TestResult.ERROR
+
+
+class EncryptionTest(TestCase):
+    """
+    Test encryption functionality.
+    
+    Scenario:
+    - Radio enables encryption
+    - Radio checks encryption status
+    - Radio disables encryption
+    """
+    
+    def __init__(self):
+        super().__init__(
+            name="Encryption Test",
+            description="Test encryption enable/disable functionality"
+        )
+    
+    def run(self) -> TestResult:
+        """Execute encryption test."""
+        try:
+            if len(self.radios) < 1:
+                self.error_message = "Test requires at least 1 radio"
+                return TestResult.FAILED
+            
+            radio_ids = list(self.radios.keys())
+            radio1 = self.radios[radio_ids[0]]
+            
+            logger.info(f"Encryption test on {radio_ids[0]}")
+            
+            # Enable encryption
+            logger.info("Enabling encryption...")
+            if not radio1.enable_encryption(key_id=1):
+                self.error_message = "Failed to enable encryption"
+                return TestResult.FAILED
+            
+            # Check status
+            logger.info("Checking encryption status...")
+            status = radio1.get_encryption_status()
+            if not status:
+                logger.warning("Failed to get encryption status")
+            else:
+                logger.info(f"Encryption status: {status}")
+            
+            # Disable encryption
+            logger.info("Disabling encryption...")
+            if not radio1.disable_encryption():
+                self.error_message = "Failed to disable encryption"
+                return TestResult.FAILED
+            
+            logger.info("Encryption test completed successfully")
+            return TestResult.PASSED
+            
+        except Exception as e:
+            self.error_message = f"Exception during test: {str(e)}"
+            logger.error(self.error_message, exc_info=True)
+            return TestResult.ERROR

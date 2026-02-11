@@ -282,6 +282,58 @@ class TetraRadioSimulator:
         elif command.startswith("AT+CMGS"):
             self._send_response("OK")
         
+        # Audio volume commands
+        elif command.startswith("AT+CLVL="):
+            # Set volume
+            self._send_response("OK")
+        elif command.startswith("AT+CLVL?"):
+            # Get volume
+            self._send_response("+CLVL: 50")
+            self._send_response("OK")
+        
+        # Encryption commands
+        elif command.startswith("AT+CTENC="):
+            self._send_response("OK")
+        elif command.startswith("AT+CTENC?"):
+            self._send_response("+CTENC: 0,0")
+            self._send_response("OK")
+        
+        # Signal strength
+        elif command.startswith("AT+CSQ"):
+            self._send_response("+CSQ: 25,0")
+            self._send_response("OK")
+        
+        # Network attachment
+        elif command.startswith("AT+CGATT="):
+            self._send_response("OK")
+        elif command.startswith("AT+CGATT?"):
+            state = 1 if self.registered else 0
+            self._send_response(f"+CGATT: {state}")
+            self._send_response("OK")
+        
+        # Operating mode
+        elif command.startswith("AT+CTOM="):
+            self._send_response("OK")
+        
+        # DGNA mode
+        elif command.startswith("AT+CTDGNA="):
+            self._send_response("OK")
+        
+        # Location info
+        elif command.startswith("AT+CTLOC="):
+            self._send_response("OK")
+        
+        # Ambient listening
+        elif command.startswith("AT+CTAL="):
+            self._send_response("OK")
+        
+        # Read/delete messages
+        elif command.startswith("AT+CMGR="):
+            self._send_response("+CMGR: 0,\"1234\",\"Test Message\"")
+            self._send_response("OK")
+        elif command.startswith("AT+CMGD="):
+            self._send_response("OK")
+        
         # Unknown command
         else:
             logger.warning(f"Unknown command for {self.radio_id}: {command}")
@@ -296,15 +348,31 @@ class TetraRadioSimulator:
         - BUSY: Called party is busy (already in a call)
         - NO ANSWER: Simulated no answer scenario
         - NO DIALTONE: Simulated no network scenario
+        
+        Supports:
+        - Individual calls: ATD<number>;
+        - Group calls: ATD<number>#
+        - Emergency individual: ATD<number>!;
+        - Emergency group: ATD<number>!#
         """
         # Extract target from ATD command
-        # ATD<number>; for individual call
-        # ATD<number># for group call
-        
         target = None
         is_group_call = False
+        is_emergency = False
         
-        if ';' in command:
+        # Check for emergency flag
+        if '!' in command:
+            is_emergency = True
+        
+        if '!#' in command:
+            # Emergency group call
+            target = command.replace("ATD", "").replace("!#", "").strip()
+            is_group_call = True
+        elif '!;' in command:
+            # Emergency individual call
+            target = command.replace("ATD", "").replace("!;", "").strip()
+            is_group_call = False
+        elif ';' in command:
             # Individual call
             target = command.replace("ATD", "").replace(";", "").strip()
             is_group_call = False
@@ -336,10 +404,11 @@ class TetraRadioSimulator:
         self.state = RadioState.IN_CALL
         self.in_call_with = target
         
+        call_type = "EMERGENCY " if is_emergency else ""
         if is_group_call:
-            logger.info(f"Simulator {self.radio_id} making group call to {target}")
+            logger.info(f"Simulator {self.radio_id} making {call_type}group call to {target}")
         else:
-            logger.info(f"Simulator {self.radio_id} making individual call to {target}")
+            logger.info(f"Simulator {self.radio_id} making {call_type}individual call to {target}")
         
         self._send_response("OK")
     

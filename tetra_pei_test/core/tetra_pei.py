@@ -49,6 +49,17 @@ class TetraPEI:
         self._last_response = ""
         self._unsolicited_messages = []
         
+        # Patterns that identify unsolicited messages
+        # These are messages that appear without being requested
+        self._unsolicited_patterns = [
+            'RING',       # Incoming call
+            '+CLIP:',     # Caller ID (unsolicited)
+            '+CTXD:',     # PTT event (unsolicited)
+            '+CMTI:',     # New text message notification
+            '+CPIN:',     # PTT event alternative
+            '+CTSDSI:',   # Status message received (unsolicited)
+        ]
+        
         logger.info(f"TetraPEI initialized for radio {self.radio_id}")
     
     def _send_command(self, command: str, wait_for_response: bool = True, 
@@ -83,13 +94,70 @@ class TetraPEI:
             # Check if we got ERROR instead
             if "ERROR" in response:
                 logger.error(f"Command failed for {self.radio_id}: {command} -> {response}")
-                return False, response
+                # Filter unsolicited messages even from error responses
+                filtered_response, unsolicited = self._filter_unsolicited_messages(response)
+                self._unsolicited_messages.extend(unsolicited)
+                return False, filtered_response
             logger.error(f"Timeout waiting for response from {self.radio_id}: {command}")
             return False, response
         
-        self._last_response = response
+        # Filter out unsolicited messages from the response
+        filtered_response, unsolicited = self._filter_unsolicited_messages(response)
+        
+        # Store unsolicited messages for later retrieval
+        if unsolicited:
+            self._unsolicited_messages.extend(unsolicited)
+            logger.debug(f"Captured {len(unsolicited)} unsolicited message(s) during command: {command}")
+        
+        self._last_response = filtered_response
         logger.debug(f"Command successful for {self.radio_id}: {command}")
-        return True, response
+        return True, filtered_response
+    
+    def _filter_unsolicited_messages(self, response: str) -> Tuple[str, List[str]]:
+        """
+        Filter unsolicited messages from a command response.
+        
+        Args:
+            response: Raw response from radio
+        
+        Returns:
+            Tuple of (filtered_response, list_of_unsolicited_messages)
+        """
+        lines = response.split('\r\n')
+        filtered_lines = []
+        unsolicited = []
+        
+        for line in lines:
+            # Check if this line is an unsolicited message
+            is_unsolicited = False
+            for pattern in self._unsolicited_patterns:
+                if pattern in line:
+                    is_unsolicited = True
+                    unsolicited.append(line)
+                    logger.debug(f"Filtered unsolicited message: {line}")
+                    break
+            
+            # Keep the line if it's not unsolicited
+            if not is_unsolicited:
+                filtered_lines.append(line)
+        
+        filtered_response = '\r\n'.join(filtered_lines)
+        return filtered_response, unsolicited
+    
+    def get_unsolicited_messages(self, clear: bool = True) -> List[str]:
+        """
+        Get stored unsolicited messages.
+        
+        Args:
+            clear: If True, clear the buffer after returning messages
+        
+        Returns:
+            List of unsolicited message strings
+        """
+        messages = self._unsolicited_messages.copy()
+        if clear:
+            self._unsolicited_messages.clear()
+        return messages
     
     def test_connection(self) -> bool:
         """

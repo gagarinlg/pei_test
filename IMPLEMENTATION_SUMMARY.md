@@ -267,11 +267,24 @@ OK - All tests passing
 - Results reported
 - Clean shutdown
 
-### Test Coverage
-- RadioConnection: 8 tests
-- TetraPEI: 13 tests
-- ConfigManager: 8 tests
-- Repeat Functionality: 13 tests
+### Test Coverage Summary
+```
+Module                  Coverage
+---------------------------------
+config_manager.py       100%
+radio_connection.py     100%
+test_runner.py          100%
+tetra_pei.py            100%
+test_base.py            98%
+__init__.py             100%
+---------------------------------
+TOTAL (652 statements)  99%
+```
+
+**Test Breakdown:**
+- Original tests: 42
+- Extended coverage tests: 85
+- **Total: 127 tests (all passing)**
 
 ## Usage Examples
 

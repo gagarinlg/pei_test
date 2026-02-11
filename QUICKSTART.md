@@ -224,8 +224,9 @@ python -m unittest discover tetra_pei_test/tests -v
 
 ## Statistics
 
-- **Total Code**: ~3000 lines of Python
-- **Unit Tests**: 42 tests (all passing)
+- **Total Code**: ~3,200 lines of Python
+- **Unit Tests**: 127 tests (all passing)
+- **Test Coverage**: 99% overall
 - **Example Tests**: 6 test cases
 - **AT Commands**: 20+ implemented
 - **Max Radios**: 8 simultaneous connections

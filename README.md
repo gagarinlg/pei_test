@@ -241,6 +241,45 @@ Tests group registration and deregistration.
 - Radio joins multiple groups
 - Radio leaves all groups
 
+### 7. Busy Call Test
+Tests calling a busy radio (3 radios required).
+- Radio 1 calls Radio 2
+- Radio 2 answers
+- Radio 3 attempts to call Radio 2 (receives BUSY response)
+- Radio 1 ends call
+
+### 8. Emergency Call Test
+Tests emergency individual call functionality.
+- Radio 1 makes emergency call to Radio 2
+- Radio 2 answers
+- Call is maintained and ended
+
+### 9. Emergency Group Call Test
+Tests emergency group call functionality.
+- All radios join a group
+- Radio 1 makes emergency group call
+- Call is maintained and ended
+
+### 10. NO DIALTONE Test
+Tests NO DIALTONE response when radio is not registered.
+
+### 11. NO ANSWER Test
+Tests NO ANSWER response when called party doesn't answer.
+
+### 12. NO CARRIER Test
+Tests NO CARRIER response when connection is lost.
+
+### 13. ERROR Response Test
+Tests ERROR response for invalid commands.
+
+### 14. High Priority Message Test
+Tests sending high-priority text messages.
+
+### 15. Encryption Test
+Tests encryption enable/disable functionality.
+- Radio joins multiple groups
+- Radio leaves all groups
+
 ## Test Repetition Features
 
 The framework supports two types of test repetition:
@@ -306,6 +345,135 @@ This will:
 - **Stress testing**: Use `--repeat-suite` to test system stability over time
 - **Reliability verification**: Combine both to ensure consistent behavior
 
+## Emergency Calls and Priority Features
+
+### Emergency Calls
+
+The framework supports emergency calls with special handling:
+
+```python
+from tetra_pei_test.core.tetra_pei import TetraPEI
+
+# Make emergency individual call
+pei.make_individual_call("2001", emergency=True)
+
+# Make emergency group call
+pei.make_group_call("9001", emergency=True)
+```
+
+Emergency calls are sent with the `!` flag in AT commands:
+- Emergency individual: `ATD<ISSI>!;`
+- Emergency group: `ATD<GSSI>!#`
+
+### Priority Messages
+
+Send text messages with different priority levels:
+
+```python
+# Normal priority (default)
+pei.send_text_message("2001", "Regular message", priority=0)
+
+# High priority
+pei.send_text_message("2001", "Important message", priority=1)
+
+# Emergency priority
+pei.send_text_message("2001", "URGENT: Emergency message", priority=2)
+```
+
+## Advanced Features
+
+### Audio Volume Control
+
+```python
+# Set volume (0-100)
+pei.set_audio_volume(75)
+
+# Get current volume
+volume = pei.get_audio_volume()
+print(f"Current volume: {volume}")
+```
+
+### Encryption
+
+```python
+# Enable encryption with key ID 1
+pei.enable_encryption(key_id=1)
+
+# Check encryption status
+status = pei.get_encryption_status()
+print(f"Encryption enabled: {status['enabled']}")
+
+# Disable encryption
+pei.disable_encryption()
+```
+
+### Network Operations
+
+```python
+# Get signal strength
+rssi = pei.get_signal_strength()
+print(f"Signal strength: {rssi}")
+
+# Attach to network
+pei.attach_to_network()
+
+# Check attachment status
+attached = pei.get_network_attachment_status()
+
+# Detach from network
+pei.detach_from_network()
+
+# Scan for available networks
+networks = pei.scan_for_networks()
+for network in networks:
+    print(f"Network: {network['name']}")
+```
+
+### Operating Modes
+
+```python
+# Set to Trunked Mode Operation
+pei.set_operating_mode('TMO')
+
+# Set to Direct Mode Operation
+pei.set_operating_mode('DMO')
+```
+
+### Location Services
+
+```python
+# Send GPS coordinates
+pei.send_location_info(latitude=51.5074, longitude=-0.1278)
+```
+
+### Message Management
+
+```python
+# Read stored SDS message
+message = pei.read_sds_message(index=1)
+
+# Delete SDS message
+pei.delete_sds_message(index=1)
+```
+
+### Response Type Checking
+
+All commands return their response type, which you can check:
+
+```python
+result = pei.make_individual_call("2001")
+response_type = pei.get_last_response_type()
+
+if response_type == "OK":
+    print("Call initiated successfully")
+elif response_type == "BUSY":
+    print("Called party is busy")
+elif response_type == "NO ANSWER":
+    print("Called party did not answer")
+elif response_type == "NO DIALTONE":
+    print("No network connection")
+```
+
 ## Creating Custom Tests
 
 To create a custom test case, inherit from the `TestCase` base class:
@@ -355,7 +523,17 @@ class MyCustomTest(TestCase):
 
 ## TETRA PEI AT Commands
 
-The framework implements common TETRA PEI AT commands:
+The framework implements comprehensive TETRA PEI AT commands with full response handling:
+
+### AT Command Responses
+
+All AT commands return one of the following final responses:
+- `OK` - Command executed successfully
+- `ERROR` - Command syntax error or execution failure
+- `NO CARRIER` - Call disconnected by remote party
+- `NO DIALTONE` - No network or dial tone available
+- `BUSY` - Called party is busy (already in a call)
+- `NO ANSWER` - Called party did not answer
 
 ### Basic Commands
 - `AT` - Test connection
@@ -366,30 +544,55 @@ The framework implements common TETRA PEI AT commands:
 
 ### Network Commands
 - `AT+COPS=0` - Register to network
+- `AT+COPS=?` - Scan for available networks
 - `AT+CREG?` - Check registration status
+- `AT+CGATT=1` - Attach to network
+- `AT+CGATT=0` - Detach from network
+- `AT+CGATT?` - Get network attachment status
+- `AT+CSQ` - Get signal strength
 
 ### Call Commands
 - `ATD<ISSI>;` - Make individual call
+- `ATD<ISSI>!;` - Make **emergency** individual call
 - `ATD<GSSI>#` - Make group call
+- `ATD<GSSI>!#` - Make **emergency** group call
 - `ATA` - Answer call
 - `ATH` - End call
 
 ### PTT Commands
 - `AT+CTXD=1` - Press PTT
 - `AT+CTXD=0` - Release PTT
+- `AT+CTXD?` - Query PTT status
 
 ### Group Commands
 - `AT+CTGS=<GSSI>` - Join group
 - `AT+CTGL=<GSSI>` - Leave group
 
 ### Message Commands
-- `AT+CMGS="<target>","<message>"` - Send text message
+- `AT+CMGS="<target>","<message>",<priority>` - Send text message (priority: 0=normal, 1=high, 2=emergency)
 - `AT+CTSDSR=<target>,<status>` - Send status message
+- `AT+CMGR=<index>` - Read stored SDS message
+- `AT+CMGD=<index>` - Delete stored SDS message
 
 ### Notification Commands
 - `AT+CLIP=1` - Enable calling line identification
 - `AT+CRC=1` - Enable extended ring format
 - `AT+CNMI=2,1` - Enable message notifications
+
+### Audio Commands
+- `AT+CLVL=<level>` - Set audio volume (0-100)
+- `AT+CLVL?` - Get current audio volume
+
+### Encryption Commands
+- `AT+CTENC=<key_id>` - Enable encryption with specified key
+- `AT+CTENC=0` - Disable encryption
+- `AT+CTENC?` - Get encryption status
+
+### Advanced Commands
+- `AT+CTOM=<mode>` - Set operating mode (TMO/DMO)
+- `AT+CTLOC=<lat>,<lon>` - Send location information
+- `AT+CTAL=<mode>` - Set ambient listening (0=off, 1=on)
+- `AT+CTDGNA=<mode>` - Set DGNA mode (0=disabled, 1=enabled)
 
 ## Architecture
 

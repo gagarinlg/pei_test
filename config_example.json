@@ -1,0 +1,39 @@
+{
+  "radios": [
+    {
+      "id": "radio_1",
+      "host": "192.168.1.101",
+      "port": 5000,
+      "issi": "1001",
+      "description": "Radio 1 - Primary Test Unit"
+    },
+    {
+      "id": "radio_2",
+      "host": "192.168.1.102",
+      "port": 5000,
+      "issi": "1002",
+      "description": "Radio 2 - Secondary Test Unit"
+    }
+  ],
+  "test_config": {
+    "default_timeout": 30,
+    "retry_count": 3,
+    "log_level": "INFO",
+    "call_setup_time": 5,
+    "ptt_response_time": 2
+  },
+  "groups": [
+    {
+      "id": "group_1",
+      "gssi": "9001",
+      "name": "Test Group 1",
+      "description": "Primary test group"
+    },
+    {
+      "id": "group_2",
+      "gssi": "9002",
+      "name": "Test Group 2",
+      "description": "Secondary test group"
+    }
+  ]
+}

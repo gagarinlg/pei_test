@@ -1,0 +1,63 @@
+# TETRA PEI Testing Framework - Example Configuration
+
+# Radio Configuration
+# Configure up to 8 TETRA radios
+radios:
+  - id: radio_1
+    host: 192.168.1.101
+    port: 5000
+    issi: "1001"
+    description: "Radio 1 - Primary Test Unit"
+  
+  - id: radio_2
+    host: 192.168.1.102
+    port: 5000
+    issi: "1002"
+    description: "Radio 2 - Secondary Test Unit"
+  
+  - id: radio_3
+    host: 192.168.1.103
+    port: 5000
+    issi: "1003"
+    description: "Radio 3"
+  
+  - id: radio_4
+    host: 192.168.1.104
+    port: 5000
+    issi: "1004"
+    description: "Radio 4"
+
+# Test Configuration
+test_config:
+  # Default timeout for operations in seconds
+  default_timeout: 30
+  
+  # Number of retry attempts for failed operations
+  retry_count: 3
+  
+  # Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  log_level: INFO
+  
+  # Time to wait for call setup in seconds
+  call_setup_time: 5
+  
+  # Time to wait for PTT response in seconds
+  ptt_response_time: 2
+
+# Group Configuration
+# Define test groups (talkgroups)
+groups:
+  - id: group_1
+    gssi: "9001"
+    name: "Test Group 1"
+    description: "Primary test group"
+  
+  - id: group_2
+    gssi: "9002"
+    name: "Test Group 2"
+    description: "Secondary test group"
+  
+  - id: group_3
+    gssi: "9003"
+    name: "Emergency Group"
+    description: "Emergency communications group"

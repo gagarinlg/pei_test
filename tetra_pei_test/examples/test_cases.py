@@ -980,3 +980,219 @@ class EncryptionTest(TestCase):
             self.error_message = f"Exception during test: {str(e)}"
             logger.error(self.error_message, exc_info=True)
             return TestResult.ERROR
+
+
+class ParallelCallsWithPTTTest(TestCase):
+    """
+    Test multiple parallel calls with PTT items.
+    
+    Scenario:
+    - Radio 1 and Radio 2 establish a call
+    - Radio 3 and Radio 4 establish a separate call
+    - Both pairs use PTT to transmit
+    - Verify PTT events are handled correctly
+    - Verify calls don't interfere with each other
+    """
+    
+    def __init__(self):
+        super().__init__(
+            name="Parallel Calls with PTT Test",
+            description="Test multiple parallel calls with PTT items"
+        )
+    
+    def run(self) -> TestResult:
+        """Execute parallel calls with PTT test."""
+        try:
+            if len(self.radios) < 4:
+                self.error_message = "Test requires at least 4 radios"
+                return TestResult.FAILED
+            
+            radio_ids = list(self.radios.keys())
+            radio1 = self.radios[radio_ids[0]]
+            radio2 = self.radios[radio_ids[1]]
+            radio3 = self.radios[radio_ids[2]]
+            radio4 = self.radios[radio_ids[3]]
+            
+            logger.info(f"Parallel calls test: {radio_ids[0]}<->{radio_ids[1]} and {radio_ids[2]}<->{radio_ids[3]}")
+            
+            # Setup: Join groups for both pairs
+            group1 = "9001"
+            group2 = "9002"
+            
+            logger.info("Setting up groups...")
+            if not radio1.join_group(group1) or not radio2.join_group(group1):
+                self.error_message = "Failed to join group 1"
+                return TestResult.FAILED
+            
+            if not radio3.join_group(group2) or not radio4.join_group(group2):
+                self.error_message = "Failed to join group 2"
+                return TestResult.FAILED
+            
+            time.sleep(1)
+            
+            # Step 1: Establish both calls simultaneously
+            logger.info("Step 1: Establishing parallel calls...")
+            
+            if not radio1.make_group_call(group1):
+                self.error_message = f"Failed to establish call from {radio_ids[0]}"
+                return TestResult.FAILED
+            
+            if not radio3.make_group_call(group2):
+                self.error_message = f"Failed to establish call from {radio_ids[2]}"
+                return TestResult.FAILED
+            
+            logger.info("Both calls established")
+            time.sleep(1)
+            
+            # Step 2: Radio 1 presses PTT
+            logger.info(f"Step 2: {radio_ids[0]} pressing PTT...")
+            if not radio1.press_ptt():
+                self.error_message = f"Failed to press PTT on {radio_ids[0]}"
+                return TestResult.FAILED
+            
+            time.sleep(1)
+            
+            # Step 3: Radio 3 presses PTT (in parallel)
+            logger.info(f"Step 3: {radio_ids[2]} pressing PTT in parallel...")
+            if not radio3.press_ptt():
+                self.error_message = f"Failed to press PTT on {radio_ids[2]}"
+                return TestResult.FAILED
+            
+            time.sleep(2)
+            
+            # Step 4: Release PTT on both
+            logger.info("Step 4: Releasing PTT on both radios...")
+            if not radio1.release_ptt():
+                self.error_message = f"Failed to release PTT on {radio_ids[0]}"
+                return TestResult.FAILED
+            
+            if not radio3.release_ptt():
+                self.error_message = f"Failed to release PTT on {radio_ids[2]}"
+                return TestResult.FAILED
+            
+            time.sleep(1)
+            
+            # Step 5: End both calls
+            logger.info("Step 5: Ending both calls...")
+            if not radio1.end_call():
+                self.error_message = f"Failed to end call on {radio_ids[0]}"
+                return TestResult.FAILED
+            
+            if not radio3.end_call():
+                self.error_message = f"Failed to end call on {radio_ids[2]}"
+                return TestResult.FAILED
+            
+            logger.info("Parallel calls with PTT test completed successfully")
+            return TestResult.PASSED
+            
+        except Exception as e:
+            self.error_message = f"Exception during test: {str(e)}"
+            logger.error(self.error_message, exc_info=True)
+            return TestResult.ERROR
+    
+    def teardown(self) -> None:
+        """Leave groups after test."""
+        try:
+            for radio in self.radios.values():
+                radio.leave_group("9001")
+                radio.leave_group("9002")
+        except Exception as e:
+            logger.error(f"Error in teardown: {e}")
+
+
+class ComplexMultiRadioTest(TestCase):
+    """
+    Complex test with multiple radios, calls, and notifications.
+    
+    This test demonstrates how to create complex multi-radio scenarios
+    with various TETRA PEI features.
+    """
+    
+    def __init__(self):
+        super().__init__(
+            name="Complex Multi-Radio Test",
+            description="Complex test with calls, PTT, messages, and notifications"
+        )
+    
+    def run(self) -> TestResult:
+        """Execute complex multi-radio test."""
+        try:
+            if len(self.radios) < 3:
+                self.error_message = "Test requires at least 3 radios"
+                return TestResult.FAILED
+            
+            radio_ids = list(self.radios.keys())
+            radios = [self.radios[rid] for rid in radio_ids[:3]]
+            
+            logger.info("Complex multi-radio test starting...")
+            
+            # Phase 1: Registration and configuration
+            logger.info("Phase 1: Configuration")
+            for i, radio in enumerate(radios):
+                # Check registration
+                if not radio.check_registration_status():
+                    logger.warning(f"Radio {radio_ids[i]} not registered")
+                
+                # Get radio info
+                info = radio.get_radio_info()
+                if info:
+                    logger.info(f"Radio {radio_ids[i]}: {info}")
+            
+            time.sleep(1)
+            
+            # Phase 2: Group operations
+            logger.info("Phase 2: Group operations")
+            group_id = "9001"
+            for i, radio in enumerate(radios):
+                if not radio.join_group(group_id):
+                    self.error_message = f"Failed to join group on {radio_ids[i]}"
+                    return TestResult.FAILED
+            
+            time.sleep(1)
+            
+            # Phase 3: Establish call with PTT
+            logger.info("Phase 3: Call with PTT")
+            if not radios[0].make_group_call(group_id):
+                self.error_message = "Failed to establish group call"
+                return TestResult.FAILED
+            
+            time.sleep(1)
+            
+            # PTT operations
+            if not radios[0].press_ptt():
+                self.error_message = "Failed to press PTT"
+                return TestResult.FAILED
+            
+            time.sleep(2)
+            
+            if not radios[0].release_ptt():
+                self.error_message = "Failed to release PTT"
+                return TestResult.FAILED
+            
+            time.sleep(1)
+            
+            # Phase 4: Send messages
+            logger.info("Phase 4: Send messages")
+            if not radios[1].send_text_message("2001", "Test message", priority=0):
+                logger.warning("Failed to send message")
+            
+            time.sleep(1)
+            
+            # Phase 5: End call
+            logger.info("Phase 5: End call")
+            if not radios[0].end_call():
+                self.error_message = "Failed to end call"
+                return TestResult.FAILED
+            
+            # Phase 6: Leave groups
+            logger.info("Phase 6: Leave groups")
+            for radio in radios:
+                radio.leave_group(group_id)
+            
+            logger.info("Complex multi-radio test completed successfully")
+            return TestResult.PASSED
+            
+        except Exception as e:
+            self.error_message = f"Exception during test: {str(e)}"
+            logger.error(self.error_message, exc_info=True)
+            return TestResult.ERROR

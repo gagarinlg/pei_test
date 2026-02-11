@@ -334,6 +334,83 @@ class TetraRadioSimulator:
         elif command.startswith("AT+CMGD="):
             self._send_response("OK")
         
+        # New TETRA PEI Commands
+        # Flash class
+        elif command.startswith("AT+FLCASS="):
+            self._send_response("OK")
+        elif command.startswith("AT+FLCASS?"):
+            self._send_response("+FLCASS: 0")
+            self._send_response("OK")
+        
+        # Error reporting
+        elif command.startswith("AT+CMEE="):
+            self._send_response("OK")
+        elif command.startswith("AT+CMEE?"):
+            self._send_response("+CMEE: 0")
+            self._send_response("OK")
+        
+        # Clock
+        elif command.startswith("AT+CCLK="):
+            self._send_response("OK")
+        elif command.startswith("AT+CCLK?"):
+            self._send_response('+CCLK: "26/02/11,21:00:00+00"')
+            self._send_response("OK")
+        
+        # DCD status
+        elif command.startswith("AT+CTDCD?"):
+            self._send_response("+CTDCD: 0")
+            self._send_response("OK")
+        
+        # Trunked/Direct mode
+        elif command.startswith("AT+CTTCT?"):
+            self._send_response("+CTTCT: 0,TMO")
+            self._send_response("OK")
+        
+        # Service provider
+        elif command.startswith("AT+CTSP="):
+            self._send_response("OK")
+        elif command.startswith("AT+CTSP?"):
+            self._send_response('+CTSP: "Test Provider"')
+            self._send_response("OK")
+        
+        # Primary channel
+        elif command.startswith("AT+PCSSI?"):
+            self._send_response("+PCSSI: 1001")
+            self._send_response("OK")
+        
+        # Forwarding number
+        elif command.startswith("AT+CNUMF="):
+            self._send_response("OK")
+        elif command.startswith("AT+CNUMF?"):
+            self._send_response('+CNUMF: "12345"')
+            self._send_response("OK")
+        
+        # Subscriber number
+        elif command.startswith("AT+CNUMS?"):
+            self._send_response('+CNUMS: "1001"')
+            self._send_response("OK")
+        
+        # Dialing number
+        elif command.startswith("AT+CNUMD?"):
+            self._send_response('+CNUMD: "2001"')
+            self._send_response("OK")
+        
+        # SDS configuration
+        elif command.startswith("AT+CTSDC="):
+            self._send_response("OK")
+        elif command.startswith("AT+CTSDC?"):
+            self._send_response("+CTSDC: 0")
+            self._send_response("OK")
+        
+        # SDS status
+        elif command.startswith("AT+CTSDS?"):
+            self._send_response("+CTSDS: 0,Ready")
+            self._send_response("OK")
+        
+        # Message send (CTMGS)
+        elif command.startswith("AT+CTMGS="):
+            self._send_response("OK")
+        
         # Unknown command
         else:
             logger.warning(f"Unknown command for {self.radio_id}: {command}")

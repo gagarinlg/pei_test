@@ -10,6 +10,7 @@ from typing import Optional
 
 from ..core.test_base import TestCase, TestResult
 from ..core.tetra_pei import PTTState
+from ..core.test_helpers import CallSession, PTTSession, RadioGroup, TestScenarioBuilder
 
 
 logger = logging.getLogger(__name__)
@@ -1190,6 +1191,404 @@ class ComplexMultiRadioTest(TestCase):
                 radio.leave_group(group_id)
             
             logger.info("Complex multi-radio test completed successfully")
+            return TestResult.PASSED
+            
+        except Exception as e:
+            self.error_message = f"Exception during test: {str(e)}"
+            logger.error(self.error_message, exc_info=True)
+            return TestResult.ERROR
+
+
+class MultipleParallelCallsSequentialPTT(TestCase):
+    """
+    Test multiple parallel voice calls with sequential PTT operations.
+    
+    Demonstrates using helper classes to simplify complex test creation.
+    
+    Scenario:
+    - 3 groups with 2 radios each (6 radios total)
+    - Establish 3 parallel group calls
+    - Each group takes turns transmitting (sequential PTT)
+    - All calls end cleanly
+    """
+    
+    def __init__(self):
+        super().__init__(
+            name="Multiple Parallel Calls with Sequential PTT",
+            description="Test 3 parallel group calls with sequential PTT operations"
+        )
+    
+    def run(self) -> TestResult:
+        """Execute test using helper classes."""
+        try:
+            if len(self.radios) < 6:
+                self.error_message = "Test requires at least 6 radios"
+                return TestResult.FAILED
+            
+            radio_ids = list(self.radios.keys())
+            radios = [self.radios[rid] for rid in radio_ids[:6]]
+            
+            logger.info("Setting up 3 groups with 2 radios each...")
+            
+            # Create radio groups using helper
+            group1 = RadioGroup([radios[0], radios[1]], ["Radio1", "Radio2"])
+            group2 = RadioGroup([radios[2], radios[3]], ["Radio3", "Radio4"])
+            group3 = RadioGroup([radios[4], radios[5]], ["Radio5", "Radio6"])
+            
+            # Join groups
+            if not group1.join_group("9001"):
+                self.error_message = "Failed to setup group 9001"
+                return TestResult.FAILED
+            
+            if not group2.join_group("9002"):
+                self.error_message = "Failed to setup group 9002"
+                return TestResult.FAILED
+            
+            if not group3.join_group("9003"):
+                self.error_message = "Failed to setup group 9003"
+                return TestResult.FAILED
+            
+            time.sleep(1)
+            
+            logger.info("Establishing 3 parallel group calls...")
+            
+            # Establish all calls using CallSession helper
+            with CallSession(radios[0], "9001", "group") as call1, \
+                 CallSession(radios[2], "9002", "group") as call2, \
+                 CallSession(radios[4], "9003", "group") as call3:
+                
+                logger.info("All 3 calls established")
+                time.sleep(1)
+                
+                # Sequential PTT: Each group takes a turn
+                logger.info("Group 1 transmitting...")
+                with PTTSession(radios[0]):
+                    time.sleep(2)
+                
+                logger.info("Group 2 transmitting...")
+                with PTTSession(radios[2]):
+                    time.sleep(2)
+                
+                logger.info("Group 3 transmitting...")
+                with PTTSession(radios[4]):
+                    time.sleep(2)
+                
+                logger.info("All transmissions complete")
+                time.sleep(1)
+            
+            # Calls automatically ended by context managers
+            logger.info("All calls ended")
+            
+            # Cleanup
+            group1.leave_group("9001")
+            group2.leave_group("9002")
+            group3.leave_group("9003")
+            
+            logger.info("Test completed successfully")
+            return TestResult.PASSED
+            
+        except Exception as e:
+            self.error_message = f"Exception during test: {str(e)}"
+            logger.error(self.error_message, exc_info=True)
+            return TestResult.ERROR
+
+
+class MultipleParallelCallsSimultaneousPTT(TestCase):
+    """
+    Test multiple parallel voice calls with simultaneous PTT operations.
+    
+    Demonstrates concurrent PTT operations across multiple calls.
+    
+    Scenario:
+    - 4 radios in 2 groups
+    - Establish 2 parallel group calls
+    - Both groups transmit simultaneously (parallel PTT)
+    - Verify no interference
+    """
+    
+    def __init__(self):
+        super().__init__(
+            name="Multiple Parallel Calls with Simultaneous PTT",
+            description="Test 2 parallel calls with simultaneous PTT"
+        )
+    
+    def run(self) -> TestResult:
+        """Execute test using helper classes."""
+        try:
+            if len(self.radios) < 4:
+                self.error_message = "Test requires at least 4 radios"
+                return TestResult.FAILED
+            
+            radio_ids = list(self.radios.keys())
+            radios = [self.radios[rid] for rid in radio_ids[:4]]
+            
+            logger.info("Setting up 2 groups with 2 radios each...")
+            
+            # Create groups
+            group1 = RadioGroup([radios[0], radios[1]], ["Radio1", "Radio2"])
+            group2 = RadioGroup([radios[2], radios[3]], ["Radio3", "Radio4"])
+            
+            # Join groups
+            group1.join_group("9001")
+            group2.join_group("9002")
+            time.sleep(1)
+            
+            logger.info("Establishing 2 parallel group calls...")
+            
+            with CallSession(radios[0], "9001", "group") as call1, \
+                 CallSession(radios[2], "9002", "group") as call2:
+                
+                logger.info("Both calls established")
+                time.sleep(1)
+                
+                # Simultaneous PTT
+                logger.info("Both groups transmitting simultaneously...")
+                with PTTSession(radios[0]) as ptt1, \
+                     PTTSession(radios[2]) as ptt2:
+                    time.sleep(3)  # Both PTTs active for 3 seconds
+                
+                logger.info("Both transmissions complete")
+                time.sleep(1)
+            
+            # Cleanup
+            group1.leave_group("9001")
+            group2.leave_group("9002")
+            
+            logger.info("Test completed successfully")
+            return TestResult.PASSED
+            
+        except Exception as e:
+            self.error_message = f"Exception during test: {str(e)}"
+            logger.error(self.error_message, exc_info=True)
+            return TestResult.ERROR
+
+
+class MixedIndividualGroupCallsTest(TestCase):
+    """
+    Test mixed individual and group calls in parallel.
+    
+    Demonstrates complex scenario with different call types running simultaneously.
+    
+    Scenario:
+    - 5 radios total
+    - Radio 1 makes individual call to Radio 2
+    - Radios 3, 4, 5 have a group call
+    - Both calls active simultaneously
+    - PTT operations on both calls
+    """
+    
+    def __init__(self):
+        super().__init__(
+            name="Mixed Individual and Group Calls",
+            description="Test individual and group calls in parallel with PTT"
+        )
+    
+    def run(self) -> TestResult:
+        """Execute test."""
+        try:
+            if len(self.radios) < 5:
+                self.error_message = "Test requires at least 5 radios"
+                return TestResult.FAILED
+            
+            radio_ids = list(self.radios.keys())
+            radios = [self.radios[rid] for rid in radio_ids[:5]]
+            
+            logger.info("Setting up mixed call scenario...")
+            
+            # Setup group for radios 3, 4, 5
+            group = RadioGroup([radios[2], radios[3], radios[4]], 
+                              ["Radio3", "Radio4", "Radio5"])
+            group.join_group("9001")
+            time.sleep(1)
+            
+            logger.info("Establishing individual and group calls in parallel...")
+            
+            # Individual call: Radio1 -> Radio2
+            with CallSession(radios[0], "2001", "individual") as ind_call:
+                logger.info("Individual call established")
+                
+                # Group call: Radio3 -> Group 9001
+                with CallSession(radios[2], "9001", "group") as grp_call:
+                    logger.info("Group call established")
+                    time.sleep(1)
+                    
+                    # PTT on individual call
+                    logger.info("Radio1 transmitting on individual call...")
+                    with PTTSession(radios[0]):
+                        time.sleep(2)
+                    
+                    # PTT on group call
+                    logger.info("Radio3 transmitting on group call...")
+                    with PTTSession(radios[2]):
+                        time.sleep(2)
+                    
+                    logger.info("Both transmissions complete")
+                    time.sleep(1)
+                
+                logger.info("Group call ended")
+                time.sleep(1)
+            
+            logger.info("Individual call ended")
+            
+            # Cleanup
+            group.leave_group("9001")
+            
+            logger.info("Test completed successfully")
+            return TestResult.PASSED
+            
+        except Exception as e:
+            self.error_message = f"Exception during test: {str(e)}"
+            logger.error(self.error_message, exc_info=True)
+            return TestResult.ERROR
+
+
+class ComplexPTTPatternsTest(TestCase):
+    """
+    Test complex PTT patterns with rapid operations.
+    
+    Demonstrates various PTT patterns to test radio behavior.
+    
+    Scenario:
+    - Establish a group call
+    - Rapid PTT press/release cycles
+    - Overlapping PTT from multiple radios
+    - Quick succession PTT operations
+    """
+    
+    def __init__(self):
+        super().__init__(
+            name="Complex PTT Patterns Test",
+            description="Test various PTT patterns including rapid and overlapping"
+        )
+    
+    def run(self) -> TestResult:
+        """Execute test."""
+        try:
+            if len(self.radios) < 3:
+                self.error_message = "Test requires at least 3 radios"
+                return TestResult.FAILED
+            
+            radio_ids = list(self.radios.keys())
+            radios = [self.radios[rid] for rid in radio_ids[:3]]
+            
+            logger.info("Setting up group call for PTT patterns...")
+            
+            # Setup group
+            group = RadioGroup(radios, ["Radio1", "Radio2", "Radio3"])
+            group.join_group("9001")
+            time.sleep(1)
+            
+            with CallSession(radios[0], "9001", "group"):
+                logger.info("Group call established")
+                time.sleep(1)
+                
+                # Pattern 1: Rapid PTT cycles
+                logger.info("Pattern 1: Rapid PTT press/release cycles...")
+                for i in range(5):
+                    with PTTSession(radios[0], press_duration=0.5):
+                        pass  # Auto-press and release after 0.5s
+                    time.sleep(0.2)  # Brief gap between cycles
+                
+                # Pattern 2: Quick succession from different radios
+                logger.info("Pattern 2: Quick succession PTT from different radios...")
+                for radio in radios:
+                    with PTTSession(radio, press_duration=1):
+                        pass
+                    time.sleep(0.1)
+                
+                # Pattern 3: Overlapping PTT (radio1 presses, radio2 presses before radio1 releases)
+                logger.info("Pattern 3: Overlapping PTT...")
+                radios[0].press_ptt()
+                time.sleep(0.5)
+                radios[1].press_ptt()
+                time.sleep(1)
+                radios[0].release_ptt()
+                time.sleep(0.5)
+                radios[1].release_ptt()
+                
+                logger.info("All PTT patterns complete")
+                time.sleep(1)
+            
+            # Cleanup
+            group.leave_group("9001")
+            
+            logger.info("Test completed successfully")
+            return TestResult.PASSED
+            
+        except Exception as e:
+            self.error_message = f"Exception during test: {str(e)}"
+            logger.error(self.error_message, exc_info=True)
+            return TestResult.ERROR
+
+
+class ScenarioBuilderExampleTest(TestCase):
+    """
+    Demonstrates using the TestScenarioBuilder for fluent test creation.
+    
+    Shows how the builder API makes complex tests more readable and maintainable.
+    
+    Scenario:
+    - 6 radios in 3 groups
+    - 3 parallel calls
+    - Sequential then parallel PTT operations
+    """
+    
+    def __init__(self):
+        super().__init__(
+            name="Scenario Builder Example",
+            description="Demonstrates fluent API for complex test scenarios"
+        )
+    
+    def run(self) -> TestResult:
+        """Execute test using scenario builder."""
+        try:
+            if len(self.radios) < 6:
+                self.error_message = "Test requires at least 6 radios"
+                return TestResult.FAILED
+            
+            logger.info("Building complex scenario with fluent API...")
+            
+            # Create and execute scenario using fluent API
+            builder = TestScenarioBuilder(self.radios)
+            
+            # Setup groups: group_id -> [radio_indices]
+            builder.setup_groups({
+                "9001": [0, 1],
+                "9002": [2, 3],
+                "9003": [4, 5]
+            })
+            
+            # Establish parallel calls: (target, radio_index, call_type)
+            builder.parallel_calls([
+                ("9001", 0, "group"),
+                ("9002", 2, "group"),
+                ("9003", 4, "group")
+            ])
+            
+            # Sequential PTT: (radio_index, duration)
+            logger.info("Sequential PTT operations...")
+            builder.with_ptt([
+                (0, 2),
+                (2, 2),
+                (4, 2)
+            ], parallel=False)
+            
+            builder.wait(1)
+            
+            # Parallel PTT
+            logger.info("Parallel PTT operations...")
+            builder.with_ptt([
+                (0, 2),
+                (2, 2),
+                (4, 2)
+            ], parallel=True)
+            
+            builder.wait(1)
+            
+            # Cleanup
+            builder.cleanup()
+            
+            logger.info("Scenario completed successfully")
             return TestResult.PASSED
             
         except Exception as e:

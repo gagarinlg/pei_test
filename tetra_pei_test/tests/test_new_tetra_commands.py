@@ -2,7 +2,7 @@
 Unit tests for new TETRA PEI commands.
 
 Tests all the newly implemented TETRA PEI commands:
-- FLCASS, CMEE, CCLK, CTDCD, CTTCT, CTSP, PCSSI
+- FCLASS, CMEE, CCLK, CTDCD, CTTCT, CTSP, PCSSI
 - CNUMF, CNUMS, CNUMD, CTSDC, CTSDS, CTMGS
 - CTICN, CTOCP, CTCC, CTCR, CTSDSR
 """

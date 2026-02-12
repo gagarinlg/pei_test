@@ -88,6 +88,7 @@ class TetraPEI:
         self._last_response = ""
         self._last_response_type = None
         self._unsolicited_messages = []
+        self._unsolicited_callback = None  # Optional callback for real-time unsolicited messages
         
         # Patterns that identify unsolicited messages
         # These are messages that appear without being requested
@@ -101,8 +102,8 @@ class TetraPEI:
             '+CREG:',     # Network registration status change (unsolicited)
             '+CMGS:',     # Message send confirmation (can be unsolicited)
             '+CTTCT:',    # Trunked/Direct mode change notification
-            '+CNUMS:',    # Subscriber number notification
-            '+CNUMD:',    # Dialing number notification
+            '+CNUMS:',    # Static identities notification
+            '+CNUMD:',    # Dynamic identities notification
             '+CTGS:',     # Group selection notification
             '+CTICN:',    # Incoming call notification
             '+CTOCP:',    # Outgoing call progress
@@ -187,6 +188,14 @@ class TetraPEI:
         if unsolicited:
             self._unsolicited_messages.extend(unsolicited)
             logger.debug(f"Captured {len(unsolicited)} unsolicited message(s) during command: {command}")
+            
+            # Call callback for each unsolicited message if registered
+            if self._unsolicited_callback:
+                for msg in unsolicited:
+                    try:
+                        self._unsolicited_callback(msg)
+                    except Exception as e:
+                        logger.error(f"Error in unsolicited message callback: {e}")
         
         self._last_response = filtered_response
         
@@ -265,6 +274,45 @@ class TetraPEI:
         if clear:
             self._unsolicited_messages.clear()
         return messages
+    
+    def set_unsolicited_callback(self, callback) -> None:
+        """
+        Set a callback function to be called when unsolicited messages are received.
+        
+        The callback will be invoked immediately when an unsolicited message is received
+        during command execution, allowing real-time processing of unsolicited events
+        (like incoming calls, PTT events, etc.) without waiting for the command to complete.
+        
+        Args:
+            callback: A callable that takes one argument (the unsolicited message string).
+                     Set to None to remove the callback.
+        
+        Example:
+            def handle_unsolicited(message):
+                if 'RING' in message:
+                    print("Incoming call!")
+                elif '+CTXD:' in message:
+                    print(f"PTT event: {message}")
+            
+            pei.set_unsolicited_callback(handle_unsolicited)
+            # Now handle_unsolicited will be called for each unsolicited message
+            
+            # To remove the callback:
+            pei.set_unsolicited_callback(None)
+        """
+        self._unsolicited_callback = callback
+        logger.info(f"Unsolicited callback {'set' if callback else 'cleared'} for {self.radio_id}")
+    
+    def clear_unsolicited_messages(self) -> None:
+        """
+        Clear the stored unsolicited messages buffer.
+        
+        This can be useful to start fresh before running a series of commands,
+        ensuring you only see new unsolicited messages.
+        """
+        count = len(self._unsolicited_messages)
+        self._unsolicited_messages.clear()
+        logger.debug(f"Cleared {count} unsolicited message(s) from buffer for {self.radio_id}")
     
     def test_connection(self) -> bool:
         """
@@ -881,7 +929,7 @@ class TetraPEI:
     
     def set_flash_class(self, flash_class: int) -> bool:
         """
-        Set flash class (FLCASS).
+        Set flash class (FCLASS).
         
         Args:
             flash_class: Flash class value
@@ -890,7 +938,7 @@ class TetraPEI:
             True if successful, False otherwise
         """
         logger.info(f"Radio {self.radio_id} setting flash class to {flash_class}")
-        success, _ = self._send_command(f"AT+FLCASS={flash_class}")
+        success, _ = self._send_command(f"AT+FCLASS={flash_class}")
         return success
     
     def get_flash_class(self) -> Optional[int]:
@@ -900,9 +948,9 @@ class TetraPEI:
         Returns:
             Flash class value or None if failed
         """
-        success, response = self._send_command("AT+FLCASS?")
+        success, response = self._send_command("AT+FCLASS?")
         if success:
-            match = re.search(r'\+FLCASS:\s*(\d+)', response)
+            match = re.search(r'\+FCLASS:\s*(\d+)', response)
             if match:
                 flash_class = int(match.group(1))
                 logger.info(f"Radio {self.radio_id} flash class: {flash_class}")
@@ -1055,63 +1103,63 @@ class TetraPEI:
     
     def set_forwarding_number(self, number: str) -> bool:
         """
-        Set call forwarding number (CNUMF).
+        Set fixed numbers (CNUMF).
         
         Args:
-            number: Forwarding number
+            number: Fixed number
         
         Returns:
             True if successful, False otherwise
         """
-        logger.info(f"Radio {self.radio_id} setting forwarding number to {number}")
+        logger.info(f"Radio {self.radio_id} setting fixed number to {number}")
         success, _ = self._send_command(f'AT+CNUMF="{number}"')
         return success
     
     def get_forwarding_number(self) -> Optional[str]:
         """
-        Get call forwarding number.
+        Get fixed numbers.
         
         Returns:
-            Forwarding number or None if failed
+            Fixed number or None if failed
         """
         success, response = self._send_command("AT+CNUMF?")
         if success:
             match = re.search(r'\+CNUMF:\s*"([^"]+)"', response)
             if match:
                 number = match.group(1)
-                logger.info(f"Radio {self.radio_id} forwarding number: {number}")
+                logger.info(f"Radio {self.radio_id} fixed number: {number}")
                 return number
         return None
     
     def get_subscriber_number(self) -> Optional[str]:
         """
-        Get subscriber number (CNUMS).
+        Get static identities (CNUMS).
         
         Returns:
-            Subscriber number or None if failed
+            Static identity or None if failed
         """
         success, response = self._send_command("AT+CNUMS?")
         if success:
             match = re.search(r'\+CNUMS:\s*"([^"]+)"', response)
             if match:
                 number = match.group(1)
-                logger.info(f"Radio {self.radio_id} subscriber number: {number}")
+                logger.info(f"Radio {self.radio_id} static identity: {number}")
                 return number
         return None
     
     def get_dialing_number(self) -> Optional[str]:
         """
-        Get dialing number (CNUMD).
+        Get dynamic identities (CNUMD).
         
         Returns:
-            Dialing number or None if failed
+            Dynamic identity or None if failed
         """
         success, response = self._send_command("AT+CNUMD?")
         if success:
             match = re.search(r'\+CNUMD:\s*"([^"]+)"', response)
             if match:
                 number = match.group(1)
-                logger.info(f"Radio {self.radio_id} dialing number: {number}")
+                logger.info(f"Radio {self.radio_id} dynamic identity: {number}")
                 return number
         return None
     
@@ -1259,6 +1307,14 @@ class TetraPEI:
         """
         Send message using CTMGS command.
         
+        The CTMGS command sends the message content on the next line after the command.
+        Format:
+        1. Send AT+CTMGS=<target>,<priority>
+        2. Wait for '>' prompt
+        3. Send message text
+        4. Send Ctrl+Z (0x1A) to end message
+        5. Wait for OK
+        
         Args:
             target: Target ISSI or GSSI
             message: Message text
@@ -1268,9 +1324,58 @@ class TetraPEI:
             True if successful, False otherwise
         """
         logger.info(f"Radio {self.radio_id} sending message to {target}: {message}")
-        escaped_message = message.replace('"', '\\"')
-        success, _ = self._send_command(f'AT+CTMGS="{target}","{escaped_message}",{priority}')
-        return success
+        
+        if not self.connection.is_connected():
+            logger.error(f"Cannot send message from {self.radio_id}: not connected")
+            return False
+        
+        # Send the CTMGS command
+        command = f'AT+CTMGS="{target}",{priority}'
+        if not self.connection.send(command):
+            logger.error(f"Failed to send CTMGS command to {self.radio_id}")
+            return False
+        
+        # Wait for '>' prompt
+        success, response, _ = self.connection.receive_until_any(["> ", ">\r\n"], timeout=5.0)
+        if not success:
+            logger.error(f"Timeout waiting for '>' prompt from {self.radio_id}")
+            return False
+        
+        # Send message text followed by Ctrl+Z
+        message_data = message + "\x1A"
+        if not self.connection.send(message_data):
+            logger.error(f"Failed to send message text to {self.radio_id}")
+            return False
+        
+        # Wait for final response
+        success, response, matched_terminator = self.connection.receive_until_any(
+            self.VALID_RESPONSE_TERMINATORS, timeout=5.0
+        )
+        
+        if not success:
+            logger.error(f"Timeout waiting for response after message send from {self.radio_id}")
+            return False
+        
+        # Determine response type
+        response_type = None
+        for terminator in self.VALID_RESPONSE_TERMINATORS:
+            if matched_terminator == terminator:
+                response_type = terminator.strip()
+                break
+        
+        # Filter unsolicited messages
+        filtered_response, unsolicited = self._filter_unsolicited_messages(response, command)
+        if unsolicited:
+            self._unsolicited_messages.extend(unsolicited)
+        
+        is_success = response_type == "OK"
+        
+        if is_success:
+            logger.info(f"Message sent successfully from {self.radio_id}")
+        else:
+            logger.warning(f"Message send returned {response_type} from {self.radio_id}")
+        
+        return is_success
     
     def check_sds_report(self) -> Optional[Dict[str, str]]:
         """
@@ -1293,3 +1398,28 @@ class TetraPEI:
                     self._unsolicited_messages.remove(msg)
                     return result
         return None
+    
+    def send_at_command(self, command: str, timeout: float = 5.0) -> Tuple[bool, str]:
+        """
+        Send a generic AT command to the radio.
+        
+        This is a public wrapper around _send_command that allows sending
+        any AT command that is not already wrapped by a specific method.
+        Use this for sending commands that don't have dedicated methods.
+        
+        Args:
+            command: The AT command to send (without CR+LF, e.g., "AT+CGSN")
+            timeout: Response timeout in seconds (default: 5.0)
+        
+        Returns:
+            Tuple of (success, response_data)
+            - success: True if command returned OK, False for ERROR or timeout
+            - response_data: The full response including any intermediate data
+        
+        Example:
+            success, response = pei.send_at_command("AT+CGSN")
+            if success:
+                print(f"Serial number: {response}")
+        """
+        logger.info(f"Radio {self.radio_id} sending generic AT command: {command}")
+        return self._send_command(command, wait_for_response=True, timeout=timeout)

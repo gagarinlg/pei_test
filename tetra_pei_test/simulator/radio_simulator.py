@@ -64,6 +64,11 @@ class TetraRadioSimulator:
         self.simulate_no_answer = False  # Set to True to simulate NO ANSWER
         self.simulate_no_carrier = False  # Set to True to simulate NO CARRIER on hangup
         
+        # State for multi-stage commands (like CTMGS)
+        self.waiting_for_message_text = False
+        self.ctmgs_target = None
+        self.ctmgs_priority = None
+        
         logger.info(f"TetraRadioSimulator initialized: {radio_id} (ISSI: {issi})")
     
     def start(self) -> bool:
@@ -141,6 +146,18 @@ class TetraRadioSimulator:
                     break
                 
                 buffer += data.decode('utf-8', errors='replace')
+                
+                # Check if waiting for message text (CTMGS)
+                if self.waiting_for_message_text:
+                    # Look for Ctrl+Z (0x1A) terminator
+                    if '\x1A' in buffer:
+                        message_text, buffer = buffer.split('\x1A', 1)
+                        logger.info(f"Received message text for CTMGS: {message_text}")
+                        self.waiting_for_message_text = False
+                        self.ctmgs_target = None
+                        self.ctmgs_priority = None
+                        self._send_response("OK")
+                    continue
                 
                 # Process complete commands (terminated by \r\n)
                 while '\r\n' in buffer:
@@ -336,10 +353,10 @@ class TetraRadioSimulator:
         
         # New TETRA PEI Commands
         # Flash class
-        elif command.startswith("AT+FLCASS="):
+        elif command.startswith("AT+FCLASS="):
             self._send_response("OK")
-        elif command.startswith("AT+FLCASS?"):
-            self._send_response("+FLCASS: 0")
+        elif command.startswith("AT+FCLASS?"):
+            self._send_response("+FCLASS: 0")
             self._send_response("OK")
         
         # Error reporting
@@ -409,7 +426,15 @@ class TetraRadioSimulator:
         
         # Message send (CTMGS)
         elif command.startswith("AT+CTMGS="):
-            self._send_response("OK")
+            # Parse target and priority
+            import re
+            match = re.match(r'AT\+CTMGS="([^"]+)",(\d+)', command)
+            if match:
+                self.ctmgs_target = match.group(1)
+                self.ctmgs_priority = int(match.group(2))
+                self.waiting_for_message_text = True
+                # Send prompt for message text
+                self._send_response("> ")
         
         # Unknown command
         else:

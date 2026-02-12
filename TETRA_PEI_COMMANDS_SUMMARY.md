@@ -8,7 +8,7 @@ This document summarizes the comprehensive implementation of TETRA PEI commands 
 
 ### ✅ All Required Commands Implemented (22 commands)
 
-1. **+FLCASS** - Flash Class
+1. **+FCLASS** - Flash Class
    - `set_flash_class(flash_class)` - Set flash class
    - `get_flash_class()` - Get current flash class
 
@@ -43,15 +43,15 @@ This document summarizes the comprehensive implementation of TETRA PEI commands 
 10. **+PCSSI** - Primary Channel
     - `get_primary_channel()` - Get primary channel ISSI
 
-11. **+CNUMF** - Forwarding Number
-    - `set_forwarding_number(number)` - Set call forwarding number
-    - `get_forwarding_number()` - Get call forwarding number
+11. **+CNUMF** - Fixed Numbers
+    - `set_forwarding_number(number)` - Set fixed number
+    - `get_forwarding_number()` - Get fixed number
 
-12. **+CNUMS** - Subscriber Number
-    - `get_subscriber_number()` - Get subscriber number
+12. **+CNUMS** - Static Identities
+    - `get_subscriber_number()` - Get static identity
 
-13. **+CNUMD** - Dialing Number
-    - `get_dialing_number()` - Get dialing number
+13. **+CNUMD** - Dynamic Identities
+    - `get_dialing_number()` - Get dynamic identity
 
 14. **+CTGS** - Group Selection
     - Already implemented: `join_group(group_id)`, `leave_group(group_id)`
@@ -87,8 +87,8 @@ The following unsolicited message patterns are now fully supported:
 
 1. **+CREG** - Network registration change notification
 2. **+CTTCT** - Trunked/Direct mode change notification
-3. **+CNUMS** - Subscriber number notification
-4. **+CNUMD** - Dialing number notification
+3. **+CNUMS** - Static identities notification
+4. **+CNUMD** - Dynamic identities notification
 5. **+CTGS** - Group selection notification
 6. **+CTICN** - Incoming call notification
 7. **+CTOCP** - Outgoing call progress notification

@@ -52,7 +52,8 @@ class TestTetraPEIExtended(unittest.TestCase):
         """Test _send_command when receiving ERROR response."""
         self.connection.is_connected.return_value = True
         self.connection.send.return_value = True
-        self.connection.receive_until_any.return_value = (True, "ERROR\r\n", "ERROR\r\n")
+        self.connection.readline.return_value = "ERROR\r\n"
+        self.connection.drain_buffer.return_value = []
         
         success, response = self.pei._send_command("AT")
         
@@ -63,7 +64,8 @@ class TestTetraPEIExtended(unittest.TestCase):
         """Test _send_command when timeout waiting for response."""
         self.connection.is_connected.return_value = True
         self.connection.send.return_value = True
-        self.connection.receive_until_any.return_value = (False, "", "")
+        self.connection.readline.return_value = None
+        self.connection.drain_buffer.return_value = []
         
         success, response = self.pei._send_command("AT")
         
@@ -73,7 +75,8 @@ class TestTetraPEIExtended(unittest.TestCase):
         """Test register_to_network when command fails."""
         self.connection.is_connected.return_value = True
         self.connection.send.return_value = True
-        self.connection.receive_until_any.return_value = (True, "ERROR\r\n", "ERROR\r\n")
+        self.connection.readline.return_value = "ERROR\r\n"
+        self.connection.drain_buffer.return_value = []
         
         result = self.pei.register_to_network()
         
@@ -92,7 +95,8 @@ class TestTetraPEIExtended(unittest.TestCase):
         """Test send_text_message to a group."""
         self.connection.is_connected.return_value = True
         self.connection.send.return_value = True
-        self.connection.receive_until_any.return_value = (True, "OK\r\n", "OK\r\n")
+        self.connection.readline.return_value = "OK\r\n"
+        self.connection.drain_buffer.return_value = []
         
         result = self.pei.send_text_message("9001", "Test message", is_group=True)
         
@@ -105,7 +109,8 @@ class TestTetraPEIExtended(unittest.TestCase):
         """Test send_text_message to individual."""
         self.connection.is_connected.return_value = True
         self.connection.send.return_value = True
-        self.connection.receive_until_any.return_value = (True, "OK\r\n", "OK\r\n")
+        self.connection.readline.return_value = "OK\r\n"
+        self.connection.drain_buffer.return_value = []
         
         result = self.pei.send_text_message("2001", "Test message", is_group=False)
         
@@ -193,11 +198,9 @@ class TestTetraPEIExtended(unittest.TestCase):
         """Test enable_unsolicited_notifications returns False on command failure."""
         self.connection.is_connected.return_value = True
         self.connection.send.return_value = True
-        # First command succeeds, second fails
-        self.connection.receive_until_any.side_effect = [
-            (True, "OK\r\n", "OK\r\n"),
-            (True, "ERROR\r\n", "ERROR\r\n")
-        ]
+        # First command succeeds (OK), second fails (ERROR)
+        self.connection.readline.side_effect = ["OK\r\n", "ERROR\r\n"]
+        self.connection.drain_buffer.return_value = []
         
         result = self.pei.enable_unsolicited_notifications()
         

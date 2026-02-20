@@ -90,6 +90,9 @@ class TetraPEI:
         self._unsolicited_messages = []
         self._unsolicited_callback = None  # Optional callback for real-time unsolicited messages
         
+        # Pre-compute the set of final response terminators (stripped)
+        self._final_terminators = {t.strip() for t in self.VALID_RESPONSE_TERMINATORS}
+        
         # Patterns that identify unsolicited messages
         # These are messages that appear without being requested
         self._unsolicited_patterns = [
@@ -139,6 +142,10 @@ class TetraPEI:
         """
         Send an AT command and wait for response.
         
+        Parses the response buffer line by line, immediately handling any
+        unsolicited messages as they arrive (storing them and invoking the
+        callback) so that they are available before the final response.
+        
         Args:
             command: AT command to send (without CR+LF)
             wait_for_response: Whether to wait for final response
@@ -162,52 +169,60 @@ class TetraPEI:
         if not wait_for_response:
             return True, ""
         
-        # Wait for any valid final response
-        success, response, matched_terminator = self.connection.receive_until_any(
-            self.VALID_RESPONSE_TERMINATORS, timeout
-        )
+        # Line-by-line parsing with immediate unsolicited message handling
+        response_lines = []
+        final_response_type = None
+        expected_patterns = self._command_response_map.get(command, [])
+        start_time = time.time()
         
-        if not success:
-            logger.error(f"Timeout waiting for response from {self.radio_id}: {command}")
-            self._last_response_type = None
-            return False, response
-        
-        # Determine response type
-        response_type = None
-        for terminator in self.VALID_RESPONSE_TERMINATORS:
-            if matched_terminator == terminator:
-                response_type = terminator.strip()
-                break
-        
-        self._last_response_type = response_type
-        
-        # Filter out unsolicited messages from the response
-        filtered_response, unsolicited = self._filter_unsolicited_messages(response, command)
-        
-        # Store unsolicited messages for later retrieval
-        if unsolicited:
-            self._unsolicited_messages.extend(unsolicited)
-            logger.debug(f"Captured {len(unsolicited)} unsolicited message(s) during command: {command}")
+        while time.time() - start_time < timeout:
+            remaining = timeout - (time.time() - start_time)
+            line = self.connection.readline(timeout=remaining)
             
-            # Call callback for each unsolicited message if registered
-            if self._unsolicited_callback:
-                for msg in unsolicited:
-                    try:
-                        self._unsolicited_callback(msg)
-                    except Exception as e:
-                        logger.error(f"Error in unsolicited message callback: {e}")
+            if line is None:
+                break
+            
+            stripped = line.strip()
+            if not stripped:
+                continue
+            
+            # Check if this is a final response terminator
+            if stripped in self._final_terminators:
+                final_response_type = stripped
+                break
+            
+            # Check if this is an unsolicited message and handle immediately
+            is_unsolicited = self._handle_line_if_unsolicited(stripped, expected_patterns)
+            
+            if not is_unsolicited:
+                response_lines.append(stripped)
         
-        self._last_response = filtered_response
+        # Process any remaining complete lines in the buffer (data after final response)
+        self._drain_buffered_unsolicited()
+        
+        self._last_response_type = final_response_type
+        
+        if final_response_type is None:
+            logger.error(f"Timeout waiting for response from {self.radio_id}: {command}")
+            filtered = '\r\n'.join(response_lines)
+            self._last_response = filtered
+            return False, filtered
+        
+        # Build response including the final response terminator
+        all_lines = response_lines + [final_response_type]
+        filtered = '\r\n'.join(all_lines) + '\r\n'
+        
+        self._last_response = filtered
         
         # Determine success based on response type
-        is_success = response_type == "OK"
+        is_success = final_response_type == "OK"
         
-        if response_type == "OK":
+        if is_success:
             logger.debug(f"Command successful for {self.radio_id}: {command}")
         else:
-            logger.warning(f"Command returned {response_type} for {self.radio_id}: {command}")
+            logger.warning(f"Command returned {final_response_type} for {self.radio_id}: {command}")
         
-        return is_success, filtered_response
+        return is_success, filtered
     
     def _filter_unsolicited_messages(self, response: str, command: str = "") -> Tuple[str, List[str]]:
         """
@@ -259,6 +274,60 @@ class TetraPEI:
         
         filtered_response = '\r\n'.join(filtered_lines)
         return filtered_response, unsolicited
+    
+    def _handle_line_if_unsolicited(self, line: str, expected_patterns: List[str]) -> bool:
+        """
+        Check if a line is an unsolicited message and handle it immediately.
+        
+        If the line matches a known unsolicited pattern and is not an expected
+        response for the current command, it is stored and the callback is invoked.
+        
+        Args:
+            line: Stripped line to check
+            expected_patterns: Expected response patterns for the current command
+        
+        Returns:
+            True if the line was unsolicited and handled, False otherwise
+        """
+        for pattern in self._unsolicited_patterns:
+            if pattern in line:
+                # Check if this response is expected for the current command
+                is_expected = any(exp in line for exp in expected_patterns)
+                if not is_expected:
+                    self._unsolicited_messages.append(line)
+                    logger.debug(f"Filtered unsolicited message: {line}")
+                    if self._unsolicited_callback:
+                        try:
+                            self._unsolicited_callback(line)
+                        except Exception as e:
+                            logger.error(f"Error in unsolicited message callback: {e}")
+                    return True
+                else:
+                    logger.debug(f"Keeping expected response: {line}")
+                break
+        return False
+    
+    def _drain_buffered_unsolicited(self) -> None:
+        """
+        Process any complete lines remaining in the connection buffer
+        after a final command response has been received.
+        
+        All data after the final response is treated as unsolicited since
+        it was not part of the command/response exchange.
+        """
+        buffered_lines = self.connection.drain_buffer()
+        for line_with_crlf in buffered_lines:
+            stripped = line_with_crlf.strip()
+            if not stripped:
+                continue
+            # Everything after the final response is unsolicited
+            self._unsolicited_messages.append(stripped)
+            logger.debug(f"Captured post-response unsolicited data: {stripped}")
+            if self._unsolicited_callback:
+                try:
+                    self._unsolicited_callback(stripped)
+                except Exception as e:
+                    logger.error(f"Error in unsolicited message callback: {e}")
     
     def get_unsolicited_messages(self, clear: bool = True) -> List[str]:
         """

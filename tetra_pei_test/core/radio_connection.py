@@ -39,6 +39,7 @@ class RadioConnection:
         self.socket: Optional[socket.socket] = None
         self.connected = False
         self._lock = Lock()
+        self._recv_buffer = ""
         
         logger.info(f"RadioConnection initialized for {radio_id} at {host}:{port}")
     
@@ -81,6 +82,7 @@ class RadioConnection:
                     self.socket.close()
                     self.socket = None
                 self.connected = False
+                self._recv_buffer = ""
                 logger.info(f"Disconnected from radio {self.radio_id}")
         except Exception as e:
             logger.error(f"Error disconnecting from radio {self.radio_id}: {e}")
@@ -135,6 +137,13 @@ class RadioConnection:
         if not self.connected or not self.socket:
             logger.error(f"Cannot receive: radio {self.radio_id} not connected")
             return None
+        
+        # Return buffered data first if available
+        if self._recv_buffer:
+            data = self._recv_buffer
+            self._recv_buffer = ""
+            logger.debug(f"Returning buffered data for {self.radio_id}: {data.strip()}")
+            return data
         
         try:
             # Temporarily change timeout if specified
@@ -239,6 +248,85 @@ class RadioConnection:
         
         logger.debug(f"Timeout waiting for any of {terminators} from {self.radio_id}")
         return False, accumulated, ""
+    
+    def readline(self, timeout: float = 5.0) -> Optional[str]:
+        """
+        Read a single line (terminated by \\r\\n) from the connection.
+        
+        Uses an internal buffer to handle partial reads and preserve
+        remaining data for subsequent reads.
+        
+        Args:
+            timeout: Maximum time to wait for a complete line
+        
+        Returns:
+            Complete line including \\r\\n, or None on timeout
+        """
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout:
+            # Check if we already have a complete line in the buffer
+            idx = self._recv_buffer.find('\r\n')
+            if idx >= 0:
+                line = self._recv_buffer[:idx + 2]
+                self._recv_buffer = self._recv_buffer[idx + 2:]
+                return line
+            
+            # Need more data from the socket
+            remaining = timeout - (time.time() - start_time)
+            if remaining <= 0:
+                break
+            
+            if not self.connected or not self.socket:
+                return None
+            
+            try:
+                original_timeout = self.socket.gettimeout()
+                self.socket.settimeout(min(remaining, 1.0))
+                
+                with self._lock:
+                    data = self.socket.recv(4096)
+                
+                self.socket.settimeout(original_timeout)
+                
+                if not data:
+                    self.connected = False
+                    return None
+                
+                self._recv_buffer += data.decode('utf-8', errors='replace')
+                
+            except socket.timeout:
+                continue
+            except socket.error:
+                self.connected = False
+                return None
+            except Exception:
+                return None
+        
+        # Final check for a complete line
+        idx = self._recv_buffer.find('\r\n')
+        if idx >= 0:
+            line = self._recv_buffer[:idx + 2]
+            self._recv_buffer = self._recv_buffer[idx + 2:]
+            return line
+        
+        return None
+    
+    def drain_buffer(self) -> list:
+        """
+        Return any complete lines already in the internal receive buffer
+        without reading from the socket.
+        
+        Returns:
+            List of complete lines (each including \\r\\n)
+        """
+        lines = []
+        while '\r\n' in self._recv_buffer:
+            idx = self._recv_buffer.find('\r\n')
+            line = self._recv_buffer[:idx + 2]
+            self._recv_buffer = self._recv_buffer[idx + 2:]
+            lines.append(line)
+        return lines
     
     def is_connected(self) -> bool:
         """Check if connection is active."""

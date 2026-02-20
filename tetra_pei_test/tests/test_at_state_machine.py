@@ -712,5 +712,265 @@ class TestATParserStateEnum(unittest.TestCase):
         self.assertEqual(len(values), len(set(values)))
 
 
+# ---------------------------------------------------------------------------
+# 16. ATEvent enum
+# ---------------------------------------------------------------------------
+
+class TestATEventEnum(unittest.TestCase):
+    """ATEvent enum must exist and contain all required event names."""
+
+    def test_all_required_events_exist(self):
+        from tetra_pei_test.core.at_state_machine import ATEvent
+        required = {"BLANK_LINE", "FINAL_RESPONSE", "LINE", "PROMPT", "TIMEOUT", "CONNECTION_ERROR"}
+        actual = {e.name for e in ATEvent}
+        self.assertEqual(required, actual)
+
+    def test_events_are_distinct(self):
+        from tetra_pei_test.core.at_state_machine import ATEvent
+        values = [e.value for e in ATEvent]
+        self.assertEqual(len(values), len(set(values)))
+
+
+# ---------------------------------------------------------------------------
+# 17. Transition NamedTuple and NOCHANGE sentinel
+# ---------------------------------------------------------------------------
+
+class TestTransitionType(unittest.TestCase):
+    """Transition NamedTuple fields and NOCHANGE sentinel."""
+
+    def test_nochange_is_none(self):
+        from tetra_pei_test.core.at_state_machine import NOCHANGE
+        self.assertIsNone(NOCHANGE)
+
+    def test_transition_without_guard(self):
+        from tetra_pei_test.core.at_state_machine import Transition, ATEvent, NOCHANGE
+        t = Transition(ATEvent.LINE, ATParserState.COMPLETE, lambda sm, l: None)
+        self.assertEqual(t.event, ATEvent.LINE)
+        self.assertEqual(t.next_state, ATParserState.COMPLETE)
+        self.assertIsNone(t.guard)
+
+    def test_transition_with_guard(self):
+        from tetra_pei_test.core.at_state_machine import Transition, ATEvent, NOCHANGE
+
+        def my_guard(sm, line):
+            return True
+
+        t = Transition(ATEvent.LINE, NOCHANGE, lambda sm, l: None, my_guard)
+        self.assertEqual(t.next_state, NOCHANGE)
+        self.assertIs(t.guard, my_guard)
+
+    def test_transition_is_namedtuple(self):
+        from tetra_pei_test.core.at_state_machine import Transition
+        self.assertTrue(hasattr(Transition, '_fields'))
+        self.assertIn('event', Transition._fields)
+        self.assertIn('next_state', Transition._fields)
+        self.assertIn('handler', Transition._fields)
+        self.assertIn('guard', Transition._fields)
+
+
+# ---------------------------------------------------------------------------
+# 18. Transition table structure
+# ---------------------------------------------------------------------------
+
+class TestTransitionTable(unittest.TestCase):
+    """_TRANSITION_TABLE must be defined and contain all states."""
+
+    def test_table_exists_on_class(self):
+        self.assertTrue(hasattr(ATCommandStateMachine, '_TRANSITION_TABLE'))
+
+    def test_table_has_all_states(self):
+        table = ATCommandStateMachine._TRANSITION_TABLE
+        for state in ATParserState:
+            self.assertIn(state, table, f"Missing state {state!r} in _TRANSITION_TABLE")
+
+    def test_terminal_states_have_empty_tables(self):
+        from tetra_pei_test.core.at_state_machine import ATParserState
+        table = ATCommandStateMachine._TRANSITION_TABLE
+        for state in (ATParserState.COMPLETE, ATParserState.TIMEOUT, ATParserState.ERROR):
+            self.assertEqual(table[state], [],
+                             f"Terminal state {state!r} should have empty transition table")
+
+    def test_non_terminal_states_have_transitions(self):
+        table = ATCommandStateMachine._TRANSITION_TABLE
+        non_terminal = [
+            ATParserState.COMMAND_SENT,
+            ATParserState.WAITING_RESPONSE,
+            ATParserState.WAITING_PROMPT,
+            ATParserState.COLLECTING_MESSAGE_BODY,
+        ]
+        for state in non_terminal:
+            self.assertGreater(len(table[state]), 0,
+                               f"State {state!r} should have at least one transition")
+
+    def test_each_row_is_transition_instance(self):
+        from tetra_pei_test.core.at_state_machine import Transition
+        table = ATCommandStateMachine._TRANSITION_TABLE
+        for state, rows in table.items():
+            for i, row in enumerate(rows):
+                self.assertIsInstance(
+                    row, Transition,
+                    f"Row {i} in state {state!r} is not a Transition"
+                )
+
+
+# ---------------------------------------------------------------------------
+# 19. GDEVT guard mechanism (dispatch engine)
+# ---------------------------------------------------------------------------
+
+class TestGDEVTGuardMechanism(unittest.TestCase):
+    """
+    Verify that guarded transitions (GDEVT) work correctly:
+    - Guard True → this row fires, subsequent matching rows are skipped.
+    - Guard False → this row is skipped, the next matching row fires.
+    """
+
+    def _make_sm_with_custom_table(self, table):
+        """Create a fresh state machine, swap in a custom transition table."""
+        from tetra_pei_test.core.at_state_machine import ATEvent, ATParserState, Transition, NOCHANGE
+        sm = _make_sm()
+        sm._TRANSITION_TABLE = table
+        return sm
+
+    def test_guard_true_fires_guarded_row(self):
+        """When guard returns True the guarded row's handler is invoked."""
+        from tetra_pei_test.core.at_state_machine import ATEvent, ATParserState, Transition, NOCHANGE
+        fired = []
+
+        def guard_always_true(sm, line):
+            return True
+
+        def handler_guarded(sm, line):
+            fired.append("guarded")
+
+        def handler_fallback(sm, line):
+            fired.append("fallback")
+
+        sm = _make_sm()
+        sm.state = ATParserState.WAITING_RESPONSE
+        sm._TRANSITION_TABLE = {
+            ATParserState.WAITING_RESPONSE: [
+                Transition(ATEvent.LINE, NOCHANGE, handler_guarded, guard_always_true),
+                Transition(ATEvent.LINE, NOCHANGE, handler_fallback),
+            ],
+        }
+        sm.process_line("some data\r\n")
+        self.assertEqual(fired, ["guarded"])
+
+    def test_guard_false_falls_through_to_next_row(self):
+        """When guard returns False the engine skips to the next matching row."""
+        from tetra_pei_test.core.at_state_machine import ATEvent, ATParserState, Transition, NOCHANGE
+        fired = []
+
+        def guard_always_false(sm, line):
+            return False
+
+        def handler_guarded(sm, line):
+            fired.append("guarded")
+
+        def handler_fallback(sm, line):
+            fired.append("fallback")
+
+        sm = _make_sm()
+        sm.state = ATParserState.WAITING_RESPONSE
+        sm._TRANSITION_TABLE = {
+            ATParserState.WAITING_RESPONSE: [
+                Transition(ATEvent.LINE, NOCHANGE, handler_guarded, guard_always_false),
+                Transition(ATEvent.LINE, NOCHANGE, handler_fallback),
+            ],
+        }
+        sm.process_line("some data\r\n")
+        self.assertEqual(fired, ["fallback"])
+
+    def test_guard_false_and_no_fallback_event_ignored(self):
+        """When guard fails and no further matching row exists, event is silently dropped."""
+        from tetra_pei_test.core.at_state_machine import ATEvent, ATParserState, Transition, NOCHANGE
+        fired = []
+
+        sm = _make_sm()
+        sm.state = ATParserState.WAITING_RESPONSE
+        sm._TRANSITION_TABLE = {
+            ATParserState.WAITING_RESPONSE: [
+                Transition(ATEvent.LINE, NOCHANGE, lambda sm, l: fired.append("x"), lambda sm, l: False),
+            ],
+        }
+        sm.process_line("some data\r\n")
+        self.assertEqual(fired, [])  # event silently ignored
+
+    def test_unknown_event_silently_ignored(self):
+        """An event with no matching row in the table is silently dropped."""
+        sm = _make_sm()
+        sm.start("AT")
+        # PROMPT event has no entry in COMMAND_SENT table — dispatch should not raise
+        from tetra_pei_test.core.at_state_machine import ATEvent
+        sm._dispatch(ATEvent.PROMPT, "")
+        self.assertEqual(sm.state, ATParserState.COMMAND_SENT)  # unchanged
+
+    def test_guard_receives_sm_and_line_arguments(self):
+        """Guard is called with (sm, line) as arguments."""
+        from tetra_pei_test.core.at_state_machine import ATEvent, ATParserState, Transition, NOCHANGE
+        guard_calls = []
+
+        def spy_guard(sm, line):
+            guard_calls.append((sm, line))
+            return False
+
+        sm = _make_sm()
+        sm.state = ATParserState.WAITING_RESPONSE
+        sm._TRANSITION_TABLE = {
+            ATParserState.WAITING_RESPONSE: [
+                Transition(ATEvent.LINE, NOCHANGE, lambda sm, l: None, spy_guard),
+            ],
+        }
+        sm.process_line("hello\r\n")
+        self.assertEqual(len(guard_calls), 1)
+        self.assertIs(guard_calls[0][0], sm)
+        self.assertEqual(guard_calls[0][1], "hello")
+
+    def test_nochange_next_state_preserves_current_state(self):
+        """NOCHANGE in next_state means the current state is not modified."""
+        from tetra_pei_test.core.at_state_machine import ATEvent, ATParserState, Transition, NOCHANGE
+        sm = _make_sm()
+        sm.state = ATParserState.WAITING_RESPONSE
+        sm._TRANSITION_TABLE = {
+            ATParserState.WAITING_RESPONSE: [
+                Transition(ATEvent.LINE, NOCHANGE, lambda sm, l: None),
+            ],
+        }
+        sm.process_line("data\r\n")
+        self.assertEqual(sm.state, ATParserState.WAITING_RESPONSE)
+
+    def test_explicit_next_state_transitions(self):
+        """A non-NOCHANGE next_state must update self.state."""
+        from tetra_pei_test.core.at_state_machine import ATEvent, ATParserState, Transition, NOCHANGE
+        sm = _make_sm()
+        sm.state = ATParserState.WAITING_RESPONSE
+        sm._TRANSITION_TABLE = {
+            ATParserState.WAITING_RESPONSE: [
+                Transition(ATEvent.LINE, ATParserState.COMPLETE, lambda sm, l: None),
+            ],
+        }
+        sm.process_line("data\r\n")
+        self.assertEqual(sm.state, ATParserState.COMPLETE)
+
+    def test_builtin_unsolicited_guard_fires_correctly(self):
+        """The built-in _is_unsolicited guard correctly routes unsolicited vs data lines."""
+        # Unsolicited line: guard should fire _on_unsolicited
+        sm = _make_sm()
+        sm.start("AT+CGMI")  # expects no patterns → RING is unsolicited
+        sm.process_line("RING\r\n")
+        self.assertIn("RING", sm.get_unsolicited_messages())
+        self.assertNotIn("RING", sm.build_response())
+
+    def test_builtin_unsolicited_guard_skipped_for_expected_response(self):
+        """The built-in _is_unsolicited guard must be False for expected solicited lines."""
+        sm = _make_sm()
+        sm.start("AT+CREG?")  # expects ['+CREG:']
+        sm.process_line("+CREG: 0,1\r\n")
+        sm.process_line("OK\r\n")
+        # +CREG: is solicited → NOT in unsolicited, IS in response
+        self.assertEqual(sm.get_unsolicited_messages(), [])
+        self.assertIn("+CREG:", sm.build_response())
+
+
 if __name__ == "__main__":
     unittest.main()

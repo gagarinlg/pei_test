@@ -11,6 +11,7 @@ from typing import Optional, Dict, List, Tuple
 from enum import Enum
 
 from .radio_connection import RadioConnection
+from .at_state_machine import ATCommandStateMachine, ATParserState
 
 
 logger = logging.getLogger(__name__)
@@ -169,59 +170,46 @@ class TetraPEI:
         if not wait_for_response:
             return True, ""
         
-        # Line-by-line parsing with immediate unsolicited message handling
-        response_lines = []
-        final_response_type = None
-        expected_patterns = self._command_response_map.get(command, [])
+        # Use the state machine to parse the response
+        sm = ATCommandStateMachine(
+            self._unsolicited_patterns,
+            self._command_response_map,
+            self._unsolicited_callback,
+        )
+        sm.start(command)
+
         start_time = time.time()
-        
-        while time.time() - start_time < timeout:
+        while not sm.is_done():
             remaining = timeout - (time.time() - start_time)
+            if remaining <= 0:
+                sm.timeout()
+                break
             line = self.connection.readline(timeout=remaining)
-            
             if line is None:
+                sm.timeout()
                 break
-            
-            stripped = line.strip()
-            if not stripped:
-                continue
-            
-            # Check if this is a final response terminator
-            if stripped in self._final_terminators:
-                final_response_type = stripped
-                break
-            
-            # Check if this is an unsolicited message and handle immediately
-            is_unsolicited = self._handle_line_if_unsolicited(stripped, expected_patterns)
-            
-            if not is_unsolicited:
-                response_lines.append(stripped)
-        
-        # Process any remaining complete lines in the buffer (data after final response)
+            sm.process_line(line)
+
+        # Drain any buffered data after the final response
         self._drain_buffered_unsolicited()
-        
-        self._last_response_type = final_response_type
-        
-        if final_response_type is None:
-            logger.error(f"Timeout waiting for response from {self.radio_id}: {command}")
-            filtered = '\r\n'.join(response_lines)
-            self._last_response = filtered
-            return False, filtered
-        
-        # Build response including the final response terminator
-        all_lines = response_lines + [final_response_type]
-        filtered = '\r\n'.join(all_lines) + '\r\n'
-        
+
+        # Merge unsolicited messages from the state machine into our buffer
+        self._unsolicited_messages.extend(sm.get_unsolicited_messages())
+
+        self._last_response_type = sm.final_response
+        filtered = sm.build_response()
         self._last_response = filtered
-        
-        # Determine success based on response type
-        is_success = final_response_type == "OK"
-        
+
+        if sm.state == ATParserState.TIMEOUT:
+            logger.error(f"Timeout waiting for response from {self.radio_id}: {command}")
+            return False, filtered
+
+        is_success = sm.is_success()
         if is_success:
             logger.debug(f"Command successful for {self.radio_id}: {command}")
         else:
-            logger.warning(f"Command returned {final_response_type} for {self.radio_id}: {command}")
-        
+            logger.warning(f"Command returned {sm.final_response} for {self.radio_id}: {command}")
+
         return is_success, filtered
     
     def _filter_unsolicited_messages(self, response: str, command: str = "") -> Tuple[str, List[str]]:
@@ -1404,45 +1392,56 @@ class TetraPEI:
             logger.error(f"Failed to send CTMGS command to {self.radio_id}")
             return False
         
+        # Use the state machine — start in WAITING_PROMPT mode
+        sm = ATCommandStateMachine(
+            self._unsolicited_patterns,
+            self._command_response_map,
+            self._unsolicited_callback,
+        )
+        sm.start(command, expect_prompt=True)
+
         # Wait for '>' prompt
         success, response, _ = self.connection.receive_until_any(["> ", ">\r\n"], timeout=5.0)
         if not success:
             logger.error(f"Timeout waiting for '>' prompt from {self.radio_id}")
+            sm.timeout()
+            self._unsolicited_messages.extend(sm.get_unsolicited_messages())
             return False
         
+        # Prompt received — advance state machine
+        sm.prompt_received()
+
         # Send message text followed by Ctrl+Z
         message_data = message + "\x1A"
         if not self.connection.send(message_data):
             logger.error(f"Failed to send message text to {self.radio_id}")
+            sm.connection_error()
+            self._unsolicited_messages.extend(sm.get_unsolicited_messages())
             return False
         
-        # Wait for final response
-        success, response, matched_terminator = self.connection.receive_until_any(
-            self.VALID_RESPONSE_TERMINATORS, timeout=5.0
-        )
-        
-        if not success:
-            logger.error(f"Timeout waiting for response after message send from {self.radio_id}")
-            return False
-        
-        # Determine response type
-        response_type = None
-        for terminator in self.VALID_RESPONSE_TERMINATORS:
-            if matched_terminator == terminator:
-                response_type = terminator.strip()
+        # Read lines until the state machine reaches a terminal state
+        start_time = time.time()
+        prompt_timeout = 5.0
+        while not sm.is_done():
+            remaining = prompt_timeout - (time.time() - start_time)
+            if remaining <= 0:
+                sm.timeout()
                 break
-        
-        # Filter unsolicited messages
-        filtered_response, unsolicited = self._filter_unsolicited_messages(response, command)
-        if unsolicited:
-            self._unsolicited_messages.extend(unsolicited)
-        
-        is_success = response_type == "OK"
-        
+            line = self.connection.readline(timeout=remaining)
+            if line is None:
+                sm.timeout()
+                break
+            sm.process_line(line)
+
+        # Merge unsolicited messages
+        self._unsolicited_messages.extend(sm.get_unsolicited_messages())
+
+        is_success = sm.is_success()
+
         if is_success:
             logger.info(f"Message sent successfully from {self.radio_id}")
         else:
-            logger.warning(f"Message send returned {response_type} from {self.radio_id}")
+            logger.warning(f"Message send returned {sm.final_response} from {self.radio_id}")
         
         return is_success
     

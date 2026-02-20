@@ -90,6 +90,9 @@ class TetraPEI:
         self._unsolicited_messages = []
         self._unsolicited_callback = None  # Optional callback for real-time unsolicited messages
         
+        # Pre-compute the set of final response terminators (stripped)
+        self._final_terminators = {t.strip() for t in self.VALID_RESPONSE_TERMINATORS}
+        
         # Patterns that identify unsolicited messages
         # These are messages that appear without being requested
         self._unsolicited_patterns = [
@@ -169,7 +172,6 @@ class TetraPEI:
         # Line-by-line parsing with immediate unsolicited message handling
         response_lines = []
         final_response_type = None
-        final_terminators = {t.strip() for t in self.VALID_RESPONSE_TERMINATORS}
         expected_patterns = self._command_response_map.get(command, [])
         start_time = time.time()
         
@@ -185,7 +187,7 @@ class TetraPEI:
                 continue
             
             # Check if this is a final response terminator
-            if stripped in final_terminators:
+            if stripped in self._final_terminators:
                 final_response_type = stripped
                 break
             
@@ -215,11 +217,10 @@ class TetraPEI:
         # Determine success based on response type
         is_success = final_response_type == "OK"
         
-        if response_type := final_response_type:
-            if is_success:
-                logger.debug(f"Command successful for {self.radio_id}: {command}")
-            else:
-                logger.warning(f"Command returned {response_type} for {self.radio_id}: {command}")
+        if is_success:
+            logger.debug(f"Command successful for {self.radio_id}: {command}")
+        else:
+            logger.warning(f"Command returned {final_response_type} for {self.radio_id}: {command}")
         
         return is_success, filtered
     
